@@ -1,0 +1,13 @@
+{
+  "name": "tiktok-linker",
+  "version": "1.0.0",
+  "description": "A WebSocket-based TikTok video linker",
+  "main": "ttlinker.js",
+  "dependencies": {
+    "@tobyg74/tiktok-api-dl": "^1.0.0",
+    "ws": "^8.0.0"
+  },
+  "scripts": {
+    "start": "node ttlinker.js"
+  }
+}

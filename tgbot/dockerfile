@@ -1,0 +1,22 @@
+# Используем официальный образ .NET SDK для сборки
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build-env
+WORKDIR /app
+
+# Копируем файлы проекта и устанавливаем зависимости
+COPY *.csproj ./
+RUN dotnet restore
+
+COPY . ./
+RUN dotnet publish -c Release -o out
+
+# Используем официальный образ .NET ASP.NET Core Runtime для выполнения
+FROM mcr.microsoft.com/dotnet/aspnet:8.0
+WORKDIR /app
+COPY --from=build-env /app/out ./
+
+
+
+EXPOSE 8098
+
+# Запускаем приложение
+ENTRYPOINT ["dotnet", "TikTok-bot.dll"]
