@@ -6,7 +6,8 @@ services:
     build:
       context: ./tgbot
       dockerfile: dockerfile
-    environment: TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
     ports:
       - "8098:8098"
     networks:
