@@ -1,1 +1,7 @@
 .env
+TikTok-bot.sln
+node_modules/
+package-lock.json
+bin/
+obj/
+.vs

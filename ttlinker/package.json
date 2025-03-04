@@ -4,7 +4,7 @@
   "description": "A WebSocket-based TikTok video linker",
   "main": "ttlinker.js",
   "dependencies": {
-    "@tobyg74/tiktok-api-dl": "^1.0.0",
+    "@tobyg74/tiktok-api-dl": "^1.2.8",
     "ws": "^8.0.0"
   },
   "scripts": {
