@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   tgbot:
-    image: tgbot
+    image: tgbot:latest
     build:
       context: ./tgbot
       dockerfile: dockerfile
@@ -14,7 +14,7 @@ services:
       - tiktok-network
 
   tiktok-downloader:
-    image: tiktok-downloader
+    image: tiktok-downloader:latest
     build:
       context: ./ttlinker
       dockerfile: dockerfile
