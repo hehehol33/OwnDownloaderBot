@@ -14,7 +14,7 @@ services:
     networks:
       - tiktok-network
 
-  tiktok-downloader:
+  tiktok-linker:
     image: tiktok-downloader:latest
     build:
       context: ./ttlinker

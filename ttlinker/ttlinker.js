@@ -1,44 +1,61 @@
 const Tiktok = require("@tobyg74/tiktok-api-dl");
 const WebSocket = require('ws');
 
-const wsClient = new WebSocket('ws://tgbot:8098');
-//'ws://localhost:8098'
-//'ws://tgbot:8098'
+let wsClient;
 
-wsClient.on('open', () => {
-  console.log('✅ Подключено к WebSocket серверу');
-});
+console.log('ttlinker v. A1'); // Тоже будет версионность 
 
-wsClient.on('message', async (message) => {
-  const tiktok_url = message.toString();
-  console.log("📥 Получена ссылка:", tiktok_url);
+function connectWebSocket() { 
+    wsClient = new WebSocket('ws://tgbot:8098');
 
-  try {
-    Tiktok.Downloader(tiktok_url, {
-      version: "v1",
-      proxy: null,
-      showOriginalResponse: false
-    }).then((result) => {
-      const videoUrl = result.result.video?.playAddr?.[0] || result.result.video?.downloadAddr?.[0];
-      console.log(result)
-      if (videoUrl) {
-        console.log("🎥 Ссылка на скачивание видео:", videoUrl);
-        wsClient.send(JSON.stringify(videoUrl));
-      } else if(Array.isArray(result.result.images) ) {
-        wsClient.send(JSON.stringify(result.result.images.slice(0, 10)));
-
-      }
-      else{
-        console.log("❌ Видео не найдено");
-      }
-    }).catch((error) => {
-      console.error("❌ Ошибка загрузки видео:", error);
+    wsClient.on('open', () => { 
+        console.log('Connected to bot'); // Тоже перевод на англ
     });
-  } catch (error) {
-    console.error("❌ Ошибка обработки запроса:", error);
-  }
+
+    wsClient.on('message', async (message) => {
+        const tiktok_url = message.toString();
+        console.log("Received link:", tiktok_url);
+
+        try {
+            const result = await Tiktok.Downloader(tiktok_url, { // По советам ИИшки поставил более читабельный вариант вызова
+                version: "v1",
+                proxy: null,
+                showOriginalResponse: false
+            });
+
+            const videoUrl = result.result.video?.playAddr?.[0] || result.result.video?.downloadAddr?.[0];
+            //console.log(result); // Мб потом сделаешь цивилизованный дебаг-режим, а пока уберу шоб логи не захламлять
+
+            if (videoUrl) {
+                console.log("Video download link:", videoUrl);
+                wsClient.send(JSON.stringify(videoUrl)); // Теперь передает ошибки на бота, шоб тот понимал, что пошло не так (и дал юзеру знать)
+            } else if (Array.isArray(result.result.images)) {
+                console.log("Images download link:", result.result.images);
+                wsClient.send(JSON.stringify(result.result.images.slice(0, 10)));
+            } else {
+                console.log("Content wasn't found");
+            }
+        } catch (error) {
+            console.error("Error processing request:", error);
+            wsClient.send(JSON.stringify({ error: "Error processing request", details: error.message }));
+        }
+    });
+
+    wsClient.on('error', (error) => { 
+        console.error('WebSocket Error:', error);
+        wsClient.send(JSON.stringify({ error: "WebSocket Error", details: error.message }));
+    });
+
+    wsClient.on('close', () => {
+        console.log('Disconnected from bot, attempting to reconnect...'); // Теперь будет пробовать переподключиться, если потерял соединение 
+        setTimeout(connectWebSocket, 7000);
+    });
+}
+
+process.on('SIGINT', () => { // Штатно закрывает соединение при закрытии
+    console.log('Disconnecting from bot');
+    wsClient.close();
+    process.exit();
 });
 
-wsClient.on('error', (error) => {
-  console.error('❌ Ошибка WebSocket:', error);
-});
+connectWebSocket();
