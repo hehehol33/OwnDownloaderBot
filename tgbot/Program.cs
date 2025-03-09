@@ -21,7 +21,7 @@ class Program
         Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Bot started!"); // Попереводил вывод на англ, а то у меня нема языкового пакета и смотреть вопросики не особо удобно
 
         HttpListener listener = new();
-        listener.Prefixes.Add("*:8098/");
+        listener.Prefixes.Add("http://*:8098/");
         //"http://localhost:8098/" "http://*:8098/"
         listener.Start();
         Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - WebSocket server active");
