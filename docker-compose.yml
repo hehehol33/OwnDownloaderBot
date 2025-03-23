@@ -12,7 +12,7 @@ services:
     ports:
       - "8098:8098"
     networks:
-      - tiktok-network
+      - app-network
 
   tiktok-linker:
     image: tiktok-downloader:latest
@@ -23,8 +23,19 @@ services:
     depends_on:
       - tgbot
     networks:
-      - tiktok-network
+      - app-network
+
+  instagram-linker:
+    image: instagram-linker:latest
+    build:
+      context: ./iglinker
+      dockerfile: dockerfile
+    pull_policy: build
+    depends_on:
+      - tgbot
+    networks:
+      - app-network
 
 networks:
-  tiktok-network:
+  app-network:
     driver: bridge

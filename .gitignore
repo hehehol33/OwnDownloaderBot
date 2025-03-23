@@ -5,3 +5,4 @@ package-lock.json
 bin/
 obj/
 .vs
+testttlinker.js
