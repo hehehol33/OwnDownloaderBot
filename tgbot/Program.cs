@@ -24,6 +24,7 @@ class Program
 
         HttpListener listener = new();
         listener.Prefixes.Add("http://*:8098/");
+        //"http://localhost:8098/" "http://*:8098/"
         listener.Start();
         Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - WebSocket server active");
 
