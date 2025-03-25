@@ -7,6 +7,8 @@ console.log('ttlinker v. A2');
 
 function connectWebSocket() {
     wsClient = new WebSocket('ws://tgbot:8098');
+    //'ws://localhost:8098'
+    //'ws://tgbot:8098'
 
     wsClient.on('open', () => {
         console.log('Connected to bot');
