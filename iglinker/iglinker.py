@@ -3,12 +3,27 @@ import asyncio
 import websockets
 import json
 import time
+import os
 
-print("iglinker v. A1")  # Version information
+def is_docker():
+    return os.path.exists('/.dockerenv')
 
+# if not set - 8098
+port = os.getenv("PORT", "8098")
+print(f"Using port: {port}")
+
+# selecting host 
+if is_docker():
+    host = os.getenv("SERVER_HOST", "tgbot") # if in docker image
+else:
+    host = os.getenv("SERVER_HOST", "localhost") # if not
+print(f"Connecting to host: {host}")
+
+print("iglinker v. A2")
 
 async def connect_websocket():
-    async with websockets.connect("ws://tgbot:8098") as websocket:
+    websocket_url = f"ws://{host}:{port}"
+    async with websockets.connect(websocket_url) as websocket:
         await websocket.send("platform:instagram")
         print("Connected to bot")
 
@@ -27,7 +42,6 @@ async def connect_websocket():
                     media_items.append({"type": "photo", "url": f"Stories from @{username} have been downloaded."})
                 else:
                     post = instaloader.Post.from_shortcode(loader.context, post_url.split('/')[-2])
-
                     if post.typename == "GraphSidecar":
                         for node in post.get_sidecar_nodes():
                             media_type = 'video' if node.is_video else 'photo'

@@ -1,14 +1,26 @@
 const Tiktok = require("@tobyg74/tiktok-api-dl");
 const WebSocket = require('ws');
 
+// Function to check if the program is running in Docker
+function isDocker() {
+    const fs = require('fs');
+    return fs.existsSync('/.dockerenv');
+}
+
+console.log('ttlinker v. A3');
+
+// Get the port from the environment variable or use the default
+const port = process.env.PORT || 8098;
+console.log(`Using port: ${port}`);
+
+// Set the host depending on the environment (Docker or not)
+const host = isDocker() ? process.env.SERVER_HOST || 'tgbot' : process.env.SERVER_HOST || 'localhost';
+console.log(`Connecting to host: ${host}`);
+
 let wsClient;
 
-console.log('ttlinker v. A2');
-
 function connectWebSocket() {
-    wsClient = new WebSocket('ws://tgbot:8098');
-    //'ws://localhost:8098'
-    //'ws://tgbot:8098'
+    wsClient = new WebSocket(`ws://${host}:${port}`);
 
     wsClient.on('open', () => {
         console.log('Connected to bot');
