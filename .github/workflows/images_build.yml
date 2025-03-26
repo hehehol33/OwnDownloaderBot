@@ -1,0 +1,35 @@
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Images
+        run: |
+          docker build -t hehehol33/owndownloaderbot:tgbot ./tgbot
+          docker build -t hehehol33/owndownloaderbot:tiktok-linker ./ttlinker
+          docker build -t hehehol33/owndownloaderbot:instagram-linker ./iglinker
+
+      - name: Login to Docker Hub
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN  }}
+
+      - name: Push Images
+        if: github.event_name == 'push'
+        run: |
+          docker push hehehol33/owndownloaderbot:tgbot
+          docker push hehehol33/owndownloaderbot:tiktok-linker
+          docker push hehehol33/owndownloaderbot:instagram-linker
