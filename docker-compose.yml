@@ -2,11 +2,7 @@ version: '3.8'
 
 services:
   tgbot:
-    image: tgbot:latest
-    build:
-      context: ./tgbot
-      dockerfile: dockerfile
-    pull_policy: build 
+    image: hehehol33/owndownloaderbot:tgbot
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
     ports:
@@ -15,22 +11,14 @@ services:
       - app-network
 
   tiktok-linker:
-    image: tiktok-downloader:latest
-    build:
-      context: ./ttlinker
-      dockerfile: dockerfile
-    pull_policy: build
+    image: hehehol33/owndownloaderbot:tiktok-linker
     depends_on:
       - tgbot
     networks:
       - app-network
 
   instagram-linker:
-    image: instagram-linker:latest
-    build:
-      context: ./iglinker
-      dockerfile: dockerfile
-    pull_policy: build
+    image: hehehol33/owndownloaderbot:instagram-linker
     depends_on:
       - tgbot
     networks:
