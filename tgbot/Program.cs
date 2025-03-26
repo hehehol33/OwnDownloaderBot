@@ -17,50 +17,51 @@ class Program
     static readonly Dictionary<WebSocket, Update?> clientUpdates = [];
 
 
-
-    static async Task Main()
-    {
-        Console.WriteLine("OwnDownloader tgbot v. A4");
-
-        bot.StartReceiving(UpdateHandler, ErrorHandler);
-        Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Bot started!");
-
-        // Устанавливаем команды для бота
-        await BotCommands.SetCommandsAsync(bot);
-
-        HttpListener listener = new();
-
-        if (IsRunningInDocker()) // Если запущено в докере
+          
+        static async Task Main()
         {
-            listener.Prefixes.Add("http://*:8098/");
-        }
-        else
-        {
-            listener.Prefixes.Add("http://localhost:8098/");
-        }
+            Console.WriteLine("OwnDownloader tgbot v. A4");
 
-        listener.Start();
-        Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - WebSocket server active on port 8098");
+            bot.StartReceiving(UpdateHandler, ErrorHandler);
+            Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Bot started!");
 
-        while (true)
-        {
-            HttpListenerContext context = await listener.GetContextAsync();
-            if (context.Request.IsWebSocketRequest)
+            // Устанавливаем команды для бота
+            await BotCommands.SetCommandsAsync(bot);
+
+            HttpListener listener = new();
+            ushort port = ushort.TryParse(Environment.GetEnvironmentVariable("PORT"), out var result) ? result : (ushort)8098; // Отныне порт - переменная окружения, если ее не задать - 8098
+
+            if (IsRunningInDocker()) // Если запущено в докере то принимает ото всех, если локально - слушает локалхост (не надо менять теперь руцями)
             {
-                HttpListenerWebSocketContext wsContext = await context.AcceptWebSocketAsync(null);
-                WebSocket ws = wsContext.WebSocket;
-                _ = WebSocketServer.HandleWebSocket(filePath, ws, clients, clientPlatforms, clientChatIds, clientUpdates, bot);
+                listener.Prefixes.Add($"http://*:{port}/");
             }
             else
             {
-                context.Response.StatusCode = 400;
-                context.Response.Close();
-                Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Invalid HTTP request received and closed with 400 status.");
+                listener.Prefixes.Add($"http://localhost:{port}/");
+            }
+
+            listener.Start();
+            Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - WebSocket server active on port {port}");
+
+            while (true)
+            {
+                HttpListenerContext context = await listener.GetContextAsync();
+                if (context.Request.IsWebSocketRequest)
+                {
+                    HttpListenerWebSocketContext wsContext = await context.AcceptWebSocketAsync(null);
+                    WebSocket ws = wsContext.WebSocket;
+                    _ = WebSocketServer.HandleWebSocket(filePath, ws, clients, clientPlatforms, clientChatIds, clientUpdates, bot);
+                }
+                else
+                {
+                    context.Response.StatusCode = 400;
+                    context.Response.Close();
+                    Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Invalid HTTP request received and closed with 400 status.");
+                }
             }
         }
-    }
 
-    static bool IsRunningInDocker() 
+        static bool IsRunningInDocker() 
         {
             return File.Exists("/.dockerenv");
         }

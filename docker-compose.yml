@@ -5,6 +5,7 @@ services:
     image: hehehol33/owndownloaderbot:tgbot
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - PORT=9120
     ports:
       - "9120:8098"  # custom port set
     networks:
