@@ -5,16 +5,15 @@ services:
     image: hehehol33/owndownloaderbot:tgbot
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - PORT=9120  # 
     ports:
-      - "9120:9120"  # 
+      - "9120:8098"  # custom port set
     networks:
       - app-network
 
   tiktok-linker:
     image: hehehol33/owndownloaderbot:tiktok-linker
     environment:
-      - PORT=9120  # 
+      - PORT=9120  # custom port set
     depends_on:
       - tgbot
     networks:
@@ -23,7 +22,7 @@ services:
   instagram-linker:
     image: hehehol33/owndownloaderbot:instagram-linker
     environment:
-      - PORT=9120  # 
+      - PORT=9120  # custom port set
     depends_on:
       - tgbot
     networks:
