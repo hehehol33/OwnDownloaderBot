@@ -11,7 +11,7 @@ WORKDIR /app
 
 # Copy only necessary files
 COPY iglinker.py ./
-COPY requirements.txt ./
+COPY req.txt ./
 
 # Install Python dependencies to a temporary location and clean cache
 RUN pip install --upgrade pip \
