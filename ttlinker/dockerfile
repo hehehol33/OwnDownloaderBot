@@ -1,18 +1,12 @@
-# Используем официальный образ Node.js
-FROM node:18
-
-# Устанавливаем рабочую директорию
+FROM oven/bun:alpine AS builder
 WORKDIR /app
+COPY package.json bun.lock ./
+RUN bun install
+COPY . .
+RUN rm -rf /root/.cache
 
-# Копируем файлы проекта
-COPY package.json ./
-RUN npm install
-
-# Копируем сам скрипт
-COPY ttlinker.js ./
-
-# Открываем нужный порт для WebSocket (если сервер работает локально)
+FROM oven/bun:alpine
+WORKDIR /app
+COPY --from=builder /app ./
 EXPOSE 8098
-
-# Запуск скрипта
-CMD ["node", "ttlinker.js"]
+CMD ["bun", "ttlinker.js"]
