@@ -3,3 +3,4 @@ __pycache__
 .vs
 .git
 .gitignore
+.env
