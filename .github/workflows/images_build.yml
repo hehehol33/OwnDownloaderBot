@@ -19,6 +19,7 @@ jobs:
           docker build -t hehehol33/owndownloaderbot:tgbot ./tgbot
           docker build -t hehehol33/owndownloaderbot:tiktok-linker ./ttlinker
           docker build -t hehehol33/owndownloaderbot:instagram-linker ./iglinker
+          docker build -t hehehol33/owndownloaderbot:youtube-linker ./ytlinker
 
       - name: Login to Docker Hub
         if: github.event_name == 'push'
@@ -33,3 +34,4 @@ jobs:
           docker push hehehol33/owndownloaderbot:tgbot
           docker push hehehol33/owndownloaderbot:tiktok-linker
           docker push hehehol33/owndownloaderbot:instagram-linker
+          docker push hehehol33/owndownloaderbot:youtube-linker
