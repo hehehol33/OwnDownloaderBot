@@ -8,14 +8,14 @@ RUN dotnet restore --disable-parallel --no-cache
     
 # Copy the rest of the source code and publish
 COPY . .
-RUN dotnet publish -c Release \
+RUN dotnet publish TikTok-bot.csproj -c Release \
     -o /app/publish \
     --no-restore \
     -p:PublishTrimmed=true \
     -p:PublishSingleFile=false \
-    -p:TrimMode=link  \
+    -p:TrimMode=link \
     -r linux-musl-x64
-    
+
     
 # ---------- Runtime stage ----------
 FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine AS runtime
