@@ -1,22 +1,29 @@
-# Используем официальный образ .NET SDK для сборки
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build-env
-WORKDIR /app
-
-# Копируем файлы проекта и устанавливаем зависимости
+# ---------- Build stage ----------
+FROM mcr.microsoft.com/dotnet/sdk:8.0-alpine AS build
+WORKDIR /src
+    
+# Copy csproj and restore dependencies (cache layer)
 COPY *.csproj ./
-RUN dotnet restore
-
-COPY . ./
-RUN dotnet publish -c Release -o out
-
-# Используем официальный образ .NET ASP.NET Core Runtime для выполнения
-FROM mcr.microsoft.com/dotnet/aspnet:8.0
+RUN dotnet restore --disable-parallel --no-cache
+    
+# Copy the rest of the source code and publish
+COPY . .
+RUN dotnet publish -c Release \
+    -o /app/publish \
+    --no-restore \
+    -p:PublishTrimmed=true \
+    -p:PublishSingleFile=false \
+    -p:TrimMode=link  \
+    -r linux-musl-x64
+    
+    
+# ---------- Runtime stage ----------
+FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine AS runtime
 WORKDIR /app
-COPY --from=build-env /app/out ./
-
-
-
+    
+# Copy published output from build stage
+COPY --from=build /app/publish ./
+    
+# Expose port and set entrypoint
 EXPOSE 8098
-
-# Запускаем приложение
 ENTRYPOINT ["dotnet", "TikTok-bot.dll"]

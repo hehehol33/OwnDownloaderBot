@@ -1,0 +1,39 @@
+# --- Stage 1: builder ---
+FROM python:3.12-slim as builder
+
+ # Install system dependencies temporarily
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        && rm -rf /var/lib/apt/lists/*
+    
+# Set working directory
+WORKDIR /app
+    
+# Copy only necessary files
+COPY ytlinker.py ./
+COPY req.txt ./
+    
+# Install Python dependencies to a temporary location and clean cache
+RUN pip install --upgrade pip \
+    && pip install --prefix=/install -r req.txt \
+    && rm -rf ~/.cache
+    
+# --- Stage 2: final image with ffmpeg ---
+FROM python:3.12-slim
+    
+# Install runtime dependencies (ffmpeg for yt-dlp)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+    
+# Set working directory
+WORKDIR /app
+    
+# Copy installed Python packages from builder stage
+COPY --from=builder /install /usr/local
+    
+# Copy application code
+COPY ytlinker.py ./
+    
+# Run the application
+CMD ["python", "ytlinker.py"]

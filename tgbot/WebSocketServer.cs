@@ -104,44 +104,68 @@ namespace TikTok_bot
                                     if (jsonData.TryGetProperty("media", out JsonElement mediaElement) && mediaElement.ValueKind == JsonValueKind.Array) // Если это тип "медиа" и это массив
                                     {
                                         var mediaList = new List<IAlbumInputMedia>();
+                                        string textContent = null;
 
                                         foreach (var item in mediaElement.EnumerateArray()) // Перебираем все элементы массива
                                         {
-                                            if (item.ValueKind == JsonValueKind.Object)
+                                            if (item.ValueKind == JsonValueKind.Object && item.TryGetProperty("type", out JsonElement typeElement))
                                             {
-                                                string? type = item.GetProperty("type").GetString();
-                                                string? url = item.GetProperty("url").GetString();
+                                                string type = typeElement.GetString();
 
-                                                if (!string.IsNullOrEmpty(type) && !string.IsNullOrEmpty(url))
+                                                if (type == "photo" && item.TryGetProperty("url", out JsonElement photoUrlElement)) // Если тип "фото" и ссылки есть 
                                                 {
-                                                    if (type == "photo") // Если тип "фото" и ссылки есть 
+                                                    string url = photoUrlElement.GetString();
+                                                    if (!string.IsNullOrEmpty(url))
                                                     {
                                                         mediaList.Add(new InputMediaPhoto(InputFile.FromUri(url)));  // Ложим в наш массив медиа
                                                     }
-                                                    else if (type == "video") // Если тип "видео" и ссылки есть
+                                                }
+                                                else if (type == "video" && item.TryGetProperty("url", out JsonElement videoUrlElement)) // Если тип "видео" и ссылки есть
+                                                {
+                                                    string url = videoUrlElement.GetString();
+                                                    if (!string.IsNullOrEmpty(url))
                                                     {
                                                         mediaList.Add(new InputMediaVideo(InputFile.FromUri(url)));
                                                     }
                                                 }
+                                                else if (type == "text" && item.TryGetProperty("content", out JsonElement contentElement)) // Если тип "текст" и контент есть
+                                                {
+                                                    textContent = contentElement.GetString();
+                                                }
                                             }
                                         }
 
+                                        // Проверка активности пользователя для подписи
+                                        UserStorage userStorage = new UserStorage(filePath);
+                                        List<UserStatus> users = userStorage.LoadUsers();
+                                        long userIdToFind = update.Message.Chat.Id;
+                                        UserStatus user = users.FirstOrDefault(u => u.Id == userIdToFind);
+                                        bool isActive = user?.IsActive ?? false;
+
+                                        // Отправляем медиа с подписью, если нужно
                                         if (mediaList.Count > 0)
                                         {
-                                            // Устанавливаем подпись для первого медиа
-                                            UserStorage userStorage = new UserStorage(filePath);
-
-                                            // Загрузка списка пользователей
-                                            List<UserStatus> users = userStorage.LoadUsers();
-
-                                            // Пример: Получение статуса пользователя по ID
-                                            long userIdToFind = update.Message.Chat.Id;
-                                            UserStatus user = users.FirstOrDefault(u => u.Id == userIdToFind);
-                                            bool isActive = user?.IsActive ?? false;
-
-                                            if (isActive)
+                                            // Если есть текст и медиа - добавляем текст как подпись к первому медиа
+                                            if (!string.IsNullOrEmpty(textContent))
                                             {
-                                                // Если пользователь активен, то отправляем медиа с подписью
+                                                string caption = textContent;
+                                                if (isActive)
+                                                {
+                                                    caption += $"\n\nSent by {sender}";
+                                                }
+
+                                                if (mediaList[0] is InputMediaPhoto photoMedia)
+                                                {
+                                                    photoMedia.Caption = caption;
+                                                }
+                                                else if (mediaList[0] is InputMediaVideo videoMedia)
+                                                {
+                                                    videoMedia.Caption = caption;
+                                                }
+                                            }
+                                            // Если только медиа и пользователь активен - добавляем подпись
+                                            else if (isActive)
+                                            {
                                                 if (mediaList[0] is InputMediaPhoto photoMedia)
                                                 {
                                                     photoMedia.Caption = $"Sent by {sender}";
@@ -152,10 +176,21 @@ namespace TikTok_bot
                                                 }
                                             }
 
-
                                             // Отправляем все медиа в одной медиагруппе
                                             await bot.SendMediaGroup(chatId, mediaList);
                                             Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Sent media group to user: {sender}");
+                                        }
+                                        // Если есть только текст, отправляем его отдельным сообщением
+                                        else if (!string.IsNullOrEmpty(textContent))
+                                        {
+                                            string message = textContent;
+                                            if (isActive)
+                                            {
+                                                message += $"\n\nSent by {sender}";
+                                            }
+                                            
+                                            await bot.SendMessage(chatId, message);
+                                            Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Sent text message to user: {sender}");
                                         }
                                     }
                                     else if (jsonData.TryGetProperty("error", out JsonElement errorElement)) // Если это пришла ошибка, говорим пользователю

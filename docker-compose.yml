@@ -31,6 +31,15 @@ services:
     networks:
       - app-network
 
+  youtube-linker:  
+    image: hehehol33/owndownloaderbot:ytlinker
+    environment:
+      - PORT=9120 # custom port set
+    depends_on:
+      - tgbot
+    networks:
+      - app-network
+
 networks:
   app-network:
     driver: bridge

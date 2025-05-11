@@ -20,7 +20,7 @@ class Program
           
         static async Task Main()
         {
-            Console.WriteLine("OwnDownloader tgbot v. A4");
+            Console.WriteLine("OwnDownloader tgbot v. A5");
 
             bot.StartReceiving(UpdateHandler, ErrorHandler);
             Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Bot started!");
@@ -96,8 +96,9 @@ class Program
 
             string tiktokLink = NecessaryRegex.ExtractTikTokUrl(messageText); // Проверяем ссылку на предмет тиктока
             string instagramLink = NecessaryRegex.ExtractInstagramUrl(messageText); // И Инстаграма
+            string youtubeLink = NecessaryRegex.ExtractYouTubeUrl(messageText); // И YouTube
 
-            if (!string.IsNullOrEmpty(tiktokLink) || !string.IsNullOrEmpty(instagramLink)) // Если есть ссылка на TikTok или Instagram
+            if (!string.IsNullOrEmpty(tiktokLink) || !string.IsNullOrEmpty(instagramLink) || !string.IsNullOrEmpty(youtubeLink)) // Если есть ссылка на TikTok, Instagram или YouTube
             {
                 Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - User: {sender}, Link: {messageText}");
 
@@ -114,6 +115,10 @@ class Program
                             else if (!string.IsNullOrEmpty(instagramLink) && platform == "instagram") // Если платформа инстаграм и ссылка есть
                             {
                                 await Sending.SendLinkToClient(ws, instagramLink, chatId, update, clientPlatforms, clientChatIds, clientUpdates); // Шлем на ИГлинкер
+                            }
+                            else if (!string.IsNullOrEmpty(youtubeLink) && platform == "youtube") // Если платформа YouTube и ссылка есть
+                            {
+                                await Sending.SendLinkToClient(ws, youtubeLink, chatId, update, clientPlatforms, clientChatIds, clientUpdates); // Шлем на YTлинкер
                             }
                         }
                     }

@@ -1,0 +1,24 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TikTok-bot", "TikTok-bot.csproj", "{E92D0C0B-13F1-5A5D-BFFA-DF565691E550}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{E92D0C0B-13F1-5A5D-BFFA-DF565691E550}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E92D0C0B-13F1-5A5D-BFFA-DF565691E550}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E92D0C0B-13F1-5A5D-BFFA-DF565691E550}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E92D0C0B-13F1-5A5D-BFFA-DF565691E550}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {B3A61B3A-9B44-4A83-9C49-B2E2383D23F2}
+	EndGlobalSection
+EndGlobal
