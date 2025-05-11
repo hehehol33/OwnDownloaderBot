@@ -32,7 +32,7 @@ services:
       - app-network
 
   youtube-linker:  
-    image: hehehol33/owndownloaderbot:ytlinker
+    image: hehehol33/owndownloaderbot:youtube-linker
     environment:
       - PORT=9120 # custom port set
     depends_on:
