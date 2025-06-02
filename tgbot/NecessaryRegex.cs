@@ -19,7 +19,7 @@ namespace TikTok_bot
         /// <returns>Возвращает найденную ссылку TikTok или пустую строку, если ссылка не найдена.</returns>
         public static string ExtractTikTokUrl(string text)
         {
-            Regex regex = new(@"https?:\/\/(www\.)?(vm\.tiktok\.com\/[A-Za-z0-9]+\/?|tiktok\.com\/@[A-Za-z0-9_.-]+\/video\/\d+)", RegexOptions.IgnoreCase);
+            Regex regex = new(@"https?:\/\/(www\.)?(vt\.tiktok\.com\/[\w\-]+\/?|vm\.tiktok\.com\/[\w\-]+\/?|tiktok\.com\/@[A-Za-z0-9_.-]+\/video\/\d+(\?[^ \n\r\t]*)?)", RegexOptions.IgnoreCase);
             Match match = regex.Match(text);
             return match.Success ? match.Value.Trim() : "";
         }
