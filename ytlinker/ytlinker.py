@@ -2,63 +2,41 @@
 import time
 import json
 import asyncio
-import websockets
-import yt_dlp
 import re
 import requests
 from html import unescape
-from enum import Enum
-from dataclasses import dataclass, asdict
-from typing import List, Optional, Dict, Any, Union
+from concurrent.futures import ThreadPoolExecutor
+import yt_dlp
+from logger_config import setup_logger, configure_logging
+from communicator import WebSocketCommunicator, MediaType, MediaItem, FetchResult
 
-print("ytlinker A1")
+# Logger configuration
+configure_logging()
+logger = setup_logger("ytlinker")
 
-# Media type definitions - updated for photo type
-class MediaType(Enum):
-    VIDEO = "video"
-    SHORTS = "shorts"
-    COMMUNITY = "community"
-    IMAGE = "image"  # For community post images
-    PHOTO = "photo"  # The type to send over websocket for images
+# Constants
+VERSION = "A2"
+MAX_RETRIES = 2
+RETRY_DELAY = 1.5
+MAX_WORKERS = 4
 
-@dataclass
-class MediaItem:
-    type: MediaType
-    url: str
-    resolution: str = ""
-    title: str = ""
-    text: str = ""  # For community post text content
+# Necessary regex
+RE_INITIAL_DATA = re.compile(r"ytInitialData\s*=\s*({.*?});?\s*</script>", re.DOTALL)
+RE_IMAGE_QUALITY = re.compile(r"=s(\d+)-")
 
-@dataclass
-class FetchResult:
-    media: List[MediaItem]
-    time: int  # Time in milliseconds
+# Thread pool for CPU-bound operations
+executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
-def is_docker() -> bool:
-    """Check if running in Docker environment"""
-    return os.path.exists('/.dockerenv')
-
-# Network configuration
-port = os.getenv("PORT", "8098")
-print(f"Using port: {port}")
-
-default_host = "tgbot" if is_docker() else "localhost"
-host = os.getenv("SERVER_HOST", default_host)
-print(f"Connecting to host: {host}")
-
+# YouTube content type detection
 def is_shorts(url: str) -> bool:
     """Determine if a URL is a YouTube Shorts video"""
     return "/shorts/" in url.lower()
 
 def is_community_post(url: str) -> bool:
-    """Determine if a URL is a YouTube Community post"""
-    return "/community" in url.lower()
+    """Determine if URL is any type of YouTube Community post"""
+    return "/community" in url.lower() or "/post/" in url.lower()
 
-def is_post(url: str) -> bool:
-    """Determine if a URL is a YouTube post URL"""
-    return "/post/" in url.lower()
-
-def extract_post_content(post_url: str) -> Dict[str, Any]:
+def extract_post_content(post_url: str) -> dict:
     """
     Returns a dictionary with text and URL of the highest quality image from a YouTube Community post.
     """
@@ -67,13 +45,15 @@ def extract_post_content(post_url: str) -> Dict[str, Any]:
         "Accept-Language": "en-US,en;q=0.9",
     }
 
+    logger.info(f"Fetching content: {post_url} (community post)")
     response = requests.get(post_url, headers=headers)
     response.raise_for_status()
     
-    # Extract ytInitialData JavaScript object
-    initial_data_match = re.search(r"ytInitialData\s*=\s*({.*?});</script>", response.text, re.DOTALL)
+    # Extract ytInitialData JavaScript object using precompiled regex
+    initial_data_match = RE_INITIAL_DATA.search(response.text)
     if not initial_data_match:
-        raise ValueError("Could not find ytInitialData in page HTML.")
+        logger.error("Could not find ytInitialData in page HTML")
+        raise ValueError("Could not find ytInitialData in page HTML")
     
     initial_data = json.loads(initial_data_match.group(1))
 
@@ -114,45 +94,50 @@ def extract_post_content(post_url: str) -> Dict[str, Any]:
 
     extract_from_dict(initial_data)
     
-    # Select image with highest quality
+    # Select image with highest quality using precompiled regex
     best_image = None
     if image_urls:
-        best_image = max(image_urls, key=lambda url: int(re.search(r"=s(\d+)-", url).group(1)) 
-                                     if re.search(r"=s(\d+)-", url) else 0)
+        def get_quality(url):
+            match = RE_IMAGE_QUALITY.search(url)
+            return int(match.group(1)) if match else 0
+        best_image = max(image_urls, key=get_quality)
     
+    logger.info(f"Post contains: text={bool(post_text)}, image={bool(best_image)}")
     return {"text": post_text, "image": best_image}
 
-def _fetch_media_items_sync(url: str) -> List[MediaItem]:
-    """Synchronous function to fetch media items from YouTube URL"""
+def _fetch_media_items_sync(url: str) -> list[MediaItem]:
+    """
+    Synchronous function to fetch media items from a YouTube URL.
+
+    Returns:
+        list[MediaItem]: A list of MediaItem objects. Returns an empty list if an error occurs or no media is found.
+    """
     media_items = []
     
     try:
-        # Check if it's a community post or a post URL
-        if is_community_post(url) or is_post(url):
+        # Handle community posts
+        if is_community_post(url):
             post_content = extract_post_content(url)
             
-            # Add text as a community type item
+            # Add text content if available
             if post_content["text"]:
                 media_items.append(MediaItem(
-                    type=MediaType.COMMUNITY,
-                    url=url,  # Original URL
-                    title="Community Post",
-                    text=post_content["text"]
+                    type=MediaType.TEXT,
+                    content=post_content["text"]
                 ))
                 
             # Add image if available
             if post_content["image"]:
                 media_items.append(MediaItem(
-                    type=MediaType.IMAGE,
-                    url=post_content["image"],
-                    resolution="high",  # We're already getting the best quality
-                    title="Community Post Image"
+                    type=MediaType.PHOTO,
+                    url=post_content["image"]
                 ))
                 
             return media_items
         
-        # Existing video/shorts handling
-        media_type = MediaType.SHORTS if is_shorts(url) else MediaType.VIDEO
+        # Handle videos (both regular and shorts)
+        content_type = "shorts" if is_shorts(url) else "video"
+        logger.info(f"Fetching content: {url} ({content_type})")
         
         # Configure yt-dlp options
         ydl_opts = {
@@ -167,116 +152,85 @@ def _fetch_media_items_sync(url: str) -> List[MediaItem]:
             info = ydl.extract_info(url, download=False)
             
             if info:
+                # Get full resolution (width x height)
+                width = info.get('width', '?')
+                height = info.get('height', '?')
+                resolution = f"{width}x{height}"
+                
+                # Create video info string for logging
+                video_info = f"{info.get('title', 'Unknown')} ({resolution})"
+                logger.info(f"Found {content_type}: {video_info}")
+                
                 # Create MediaItem with available information
-                media_items.append(MediaItem(
-                    type=media_type,
-                    url=info.get('url'),
-                    resolution=f"{info.get('height', 'Unknown')}p",
-                    title=info.get('title', 'Untitled')
-                ))
+                video_url = info.get('url')
+                if video_url:
+                    media_items.append(MediaItem(
+                        type=MediaType.VIDEO,
+                        url=video_url
+                    ))
+                else:
+                    logger.warning("No direct video URL found in yt-dlp info")
                 
     except Exception as e:
-        print(f"Error fetching content: {e}")
+        logger.exception(f"Error fetching content: {e}")
     
     return media_items
 
 async def fetch_media_items(url: str) -> FetchResult:
-    """Asynchronous wrapper for _fetch_media_items_sync"""
-    loop = asyncio.get_event_loop()
-    start_time = time.time()
-    media_items = await loop.run_in_executor(None, _fetch_media_items_sync, url)
-    elapsed_time = int((time.time() - start_time) * 1000)  # Convert to milliseconds
-    return FetchResult(media=media_items, time=elapsed_time)
-
-async def send_media_items(websocket, response: FetchResult) -> None:
-    """Send media items response through websocket"""
-    print(f"Found {len(response.media)} media items (took {response.time}ms)")
-    
-    # Debug: Print all media items received
-    for item in response.media:
-        print(f"Processing media item: type={item.type.value}, url={item.url}")
-
-    # Prepare the output JSON
-    output = {"media": []}
-
-    # Add photo types first
-    for item in response.media:
-        if item.type == MediaType.IMAGE:
-            # Convert image to photo type
-            output["media"].append({
-                "type": "photo",
-                "url": item.url
-            })
-
-    # Add videos and shorts
-    for item in response.media:
-        if item.type == MediaType.VIDEO or item.type == MediaType.SHORTS:
-            output["media"].append({
-                "type": "video",
-                "url": item.url,
-                "title": item.title
-            })
-
-    # Add text types after photo
-    for item in response.media:
-        if item.type == MediaType.COMMUNITY:
-            # Add text as a separate type
-            output["media"].append({
-                "type": "text",
-                "content": item.text
-            })
-
-    # Debug: Print the output being sent
-    print(f"Sending response: {json.dumps(output)}")
-
-    # Send the modified response
-    await websocket.send(json.dumps(output))
-
-async def connect_websocket() -> None:
-    """Connect to WebSocket server and handle messages"""
-    websocket_url = f"ws://{host}:{port}"
-    async with websockets.connect(websocket_url) as websocket:
-        await websocket.send("platform:youtube")
-        print("Connected to bot")
-
-        while True:
-            url = (await websocket.recv()).strip()
-            print("Received link:", url)
-
-            # Validate URL
-            if not url.startswith("http://") and not url.startswith("https://"):
-                print(f"Ignored invalid URL: {url}")
-                continue  # Skip invalid URLs without sending an error
-
-            try:
-                response = await fetch_media_items(url)
+    """Asynchronous wrapper for _fetch_media_items_sync with retry logic"""
+    for attempt in range(MAX_RETRIES):
+        try:
+            logger.info(f"Processing URL: {url} (attempt {attempt+1}/{MAX_RETRIES})")
+            
+            # Use thread executor for CPU-bound operations
+            media_items = await asyncio.get_running_loop().run_in_executor(
+                executor, _fetch_media_items_sync, url
+            )
+            
+            if not media_items and attempt < MAX_RETRIES - 1:
+                retry_delay = RETRY_DELAY * (2 ** attempt)
+                logger.warning(f"No media items found. Retrying in {retry_delay}s")
+                await asyncio.sleep(retry_delay)
+                continue
                 
-                if not response.media:
-                    error_msg = {"error": "No media found", "details": "Could not extract any media from the provided URL"}
-                    print(error_msg)
-                    await websocket.send(json.dumps(error_msg))
-                else:
-                    await send_media_items(websocket, response)
-                    
-            except Exception as e:
-                error_msg = {"error": "Error processing request", "details": str(e)}
-                print(f"Error: {error_msg}")
-                await websocket.send(json.dumps(error_msg))
+            logger.info(f"Retrieved {len(media_items)} media items")
+            return FetchResult(media=media_items)
+            
+        except Exception as e:
+            error_message = str(e)
+            logger.error(f"Error fetching media: {error_message}", exc_info=True)
+            
+            if attempt < MAX_RETRIES - 1:
+                retry_delay = RETRY_DELAY * (2 ** attempt)
+                logger.warning(f"Retrying in {retry_delay}s")
+                await asyncio.sleep(retry_delay)
+                continue
+                
+            return FetchResult(media=[], error=f"Failed to process YouTube URL: {error_message}")
+    
+    logger.error("Maximum retry attempts reached")
+    return FetchResult(media=[], error="Maximum retry attempts reached")
 
 async def main() -> None:
-    """Main application loop with reconnect logic"""
-    while True:
-        try:
-            await connect_websocket()
-        except websockets.exceptions.ConnectionClosed:
-            print("Disconnected. Reconnecting in 7 seconds...")
-            await asyncio.sleep(7)
-        except Exception as e:
-            print(f"Connection error: {e}. Reconnecting in 7 seconds...")
-            await asyncio.sleep(7)
+    """Main function using WebSocketCommunicator"""
+    logger.info(f"ytlinker v. {VERSION}")
+    
+    communicator = WebSocketCommunicator(
+        platform_name="youtube",
+        fetch_function=fetch_media_items
+    )
+    
+    logger.info("Starting WebSocket communicator")
+    await communicator.run()
 
 if __name__ == "__main__":
     try:
+        # Use asyncio.run
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("Disconnecting from bot")
+        logger.info("Received keyboard interrupt, shutting down")
+        # Properly shutdown the executor
+        executor.shutdown(wait=True)
+        logger.info("Executor shutdown, exiting")
+    except Exception as e:
+        logger.critical(f"Unhandled exception: {e}", exc_info=True)

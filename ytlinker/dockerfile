@@ -11,6 +11,8 @@ WORKDIR /app
     
 # Copy only necessary files
 COPY ytlinker.py ./
+COPY communicator.py ./
+COPY logger_config.py ./
 COPY req.txt ./
     
 # Install Python dependencies to a temporary location and clean cache
@@ -34,6 +36,8 @@ COPY --from=builder /install /usr/local
     
 # Copy application code
 COPY ytlinker.py ./
+COPY communicator.py ./
+COPY logger_config.py ./
     
 # Run the application
 CMD ["python", "ytlinker.py"]
