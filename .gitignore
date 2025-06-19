@@ -8,3 +8,4 @@ obj/
 testttlinker.js
 Properties/
 launchSettings.json
+__pycache__

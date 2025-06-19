@@ -11,6 +11,8 @@ WORKDIR /app
 
 # Copy only necessary files
 COPY iglinker.py ./
+COPY communicator.py ./
+COPY logger_config.py ./
 COPY req.txt ./
 
 # Install Python dependencies to a temporary location and clean cache
@@ -27,8 +29,10 @@ WORKDIR /app
 # Copy installed Python packages from builder stage
 COPY --from=builder /install /usr/local
 
-# Copy application code
+# Copy application code files
 COPY iglinker.py ./
+COPY communicator.py ./
+COPY logger_config.py ./
 
 # Run the application
 CMD ["python", "iglinker.py"]
