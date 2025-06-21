@@ -1,11 +1,16 @@
 {
   "name": "bunttlinker",
   "private": true,
+  "description": "TikTok media downloader service using Bun runtime",
   "devDependencies": {
     "@types/bun": "latest",
     "bun-types": "^1.2.9"
   },
   "peerDependencies": {
     "typescript": "^5"
+  },
+  "scripts": {
+    "start": "bun ttlinker.js",
+    "dev": "bun --watch ttlinker.js"
   }
 }

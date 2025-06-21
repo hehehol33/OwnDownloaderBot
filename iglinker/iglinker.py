@@ -20,7 +20,7 @@ RETRY_DELAY = 1
 MAX_WORKERS = 4  # Limiting to avoid Instagram rate limits
 
 # Setup logger for this module
-logger = setup_logger("iglinker")
+logger = setup_logger("instagram.linker")
 
 # Thread pool for parallel operations
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)

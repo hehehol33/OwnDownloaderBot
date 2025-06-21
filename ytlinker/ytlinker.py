@@ -12,7 +12,7 @@ from communicator import WebSocketCommunicator, MediaType, MediaItem, FetchResul
 
 # Logger configuration
 configure_logging()
-logger = setup_logger("ytlinker")
+logger = setup_logger("youtube.linker")
 
 # Constants
 VERSION = "A2"

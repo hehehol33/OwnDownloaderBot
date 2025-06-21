@@ -8,5 +8,4 @@ RUN rm -rf /root/.cache
 FROM oven/bun:alpine
 WORKDIR /app
 COPY --from=builder /app ./
-EXPOSE 8098
 CMD ["bun", "ttlinker.js"]
