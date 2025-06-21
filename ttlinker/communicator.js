@@ -1,5 +1,4 @@
 import fs from "fs";
-import { WebSocket } from "bun:web";
 import Logger from "./logger.js";
 
 class WebSocketCommunicator {

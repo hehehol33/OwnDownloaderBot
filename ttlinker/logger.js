@@ -17,7 +17,8 @@ class Logger {
     }
     
     this.level = options.level !== undefined ? options.level : configLevel;
-    this.useColors = options.useColors !== false;
+    // Disable colors by default
+    this.useColors = false;
     this.appName = options.appName || 'App';
   }
 
@@ -30,28 +31,28 @@ class Logger {
   debug(...args) {
     if (this.level <= Logger.LEVELS.DEBUG) {
       const message = this.formatMessage('DEBUG', args.join(' '));
-      console.debug(this.useColors ? `\x1b[36m${message}\x1b[0m` : message);
+      console.debug(message);
     }
   }
 
   info(...args) {
     if (this.level <= Logger.LEVELS.INFO) {
       const message = this.formatMessage('INFO', args.join(' '));
-      console.info(this.useColors ? `\x1b[32m${message}\x1b[0m` : message);
+      console.info(message);
     }
   }
 
   warn(...args) {
     if (this.level <= Logger.LEVELS.WARN) {
       const message = this.formatMessage('WARN', args.join(' '));
-      console.warn(this.useColors ? `\x1b[33m${message}\x1b[0m` : message);
+      console.warn(message);
     }
   }
 
   error(...args) {
     if (this.level <= Logger.LEVELS.ERROR) {
       const message = this.formatMessage('ERROR', args.join(' '));
-      console.error(this.useColors ? `\x1b[31m${message}\x1b[0m` : message);
+      console.error(message);
     }
   }
 
