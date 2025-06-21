@@ -1,25 +1,25 @@
 import WebSocketCommunicator from "./communicator.js";
 import Logger from "./logger.js";
 
-// Константи для налаштування API запитів
+// API request configuration constants
 const CONFIG = {
-  API_RETRY_COUNT: 1,             // Кількість повторних спроб (обмежено до 1)
-  API_RETRY_DELAY: 500,           // Затримка між спробами (мс)
-  API_REQUEST_DELAY: 300,         // Затримка перед запитом (мс)
-  VERSION: "A5"                   // Версія
+  API_RETRY_COUNT: 1,             // Number of retry attempts (limited to 1)
+  API_RETRY_DELAY: 500,           // Delay between retries (ms)
+  API_REQUEST_DELAY: 300,         // Delay before each request (ms)
+  VERSION: "A5"                   // Version
 };
 
 const logger = new Logger({ appName: 'tiktok.linker' });
 logger.info(`ttlinker v. ${CONFIG.VERSION}`);
 
-// Спрощена черга повідомлень
+// Simple message queue for sequential processing
 class MessageQueue {
   constructor() {
     this.queue = [];
     this.processing = false;
   }
 
-  // Додати нове повідомлення до черги
+  // Add a new message to the queue
   async enqueue(message, processCallback) {
     return new Promise((resolve, reject) => {
       logger.debug(`Adding message to queue, current length: ${this.queue.length}`);
@@ -28,9 +28,9 @@ class MessageQueue {
     });
   }
 
-  // Обробити наступне повідомлення в черзі
+  // Process the next message in the queue
   async processNext() {
-    // Якщо зараз щось обробляється або черга порожня, вийти
+    // Exit if currently processing or queue is empty
     if (this.processing || this.queue.length === 0) return;
     
     this.processing = true;
@@ -38,7 +38,7 @@ class MessageQueue {
     logger.debug(`Processing next message in queue, remaining: ${this.queue.length}`);
     
     try {
-      // Виклик callback-функції для обробки повідомлення
+      // Call the callback function to process the message
       const result = await processCallback(message);
       resolve(result);
     } catch (error) {
@@ -46,24 +46,24 @@ class MessageQueue {
       reject(error);
     } finally {
       this.processing = false;
-      // Обробка наступного повідомлення в черзі
+      // Process the next message in the queue
       this.processNext();
     }
   }
 }
 
-// Створюємо глобальну чергу повідомлень
+// Create a global message queue
 const messageQueue = new MessageQueue();
 
-// Функція затримки
+// Delay function
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-// Отримання даних з TikTok з обробкою помилок і повторними спробами
+// Fetch TikTok data with error handling and retries
 async function fetchTikTokData(tiktokUrl, retries = CONFIG.API_RETRY_COUNT, delay = CONFIG.API_RETRY_DELAY) {
   try {
     logger.debug(`Fetching data for: ${tiktokUrl}`);
     
-    // Додаємо затримку перед запитом до API
+    // Add delay before API request
     await sleep(CONFIG.API_REQUEST_DELAY);
     
     const response = await fetch(`https://tikwm.com/api?url=${encodeURIComponent(tiktokUrl)}`);
@@ -75,7 +75,7 @@ async function fetchTikTokData(tiktokUrl, retries = CONFIG.API_RETRY_COUNT, dela
     
     const responseData = await response.json();
     
-    // Спрощений варіант перевірки
+    // Simplified validation
     if (!responseData.data) {
       throw new Error("Empty API response");
     }
@@ -100,7 +100,7 @@ async function fetchTikTokData(tiktokUrl, retries = CONFIG.API_RETRY_COUNT, dela
     
     logger.warn(`Retrying fetch for ${tiktokUrl}, attempts left: ${retries}, reason: ${error.message}`);
     
-    // Збільшуємо затримку з кожною спробою (експоненційний backoff)
+    // Increase delay with each retry (exponential backoff)
     const backoffDelay = delay * (CONFIG.API_RETRY_COUNT + 1 - retries);
     logger.debug(`Waiting ${backoffDelay}ms before retry`);
     await sleep(backoffDelay);
@@ -109,7 +109,7 @@ async function fetchTikTokData(tiktokUrl, retries = CONFIG.API_RETRY_COUNT, dela
   }
 }
 
-// Обробка TikTok посилання
+// Process TikTok link
 async function processTiktokLink(url) {
   logger.info(`Processing link: ${url}`);
   
@@ -119,7 +119,7 @@ async function processTiktokLink(url) {
     if (Array.isArray(result?.images) && result.images.length > 0) { 
       logger.info(`Found ${result.images.length} images`);
       
-      // Оптимізувати маппінг зображень
+      // Optimize image mapping
       const mediaArray = [];
       const maxImages = Math.min(result.images.length, 10);
 
@@ -155,7 +155,7 @@ async function processTiktokLink(url) {
   }
 }
 
-// Створення та налаштування комунікатора
+// Create and configure the communicator
 const communicator = new WebSocketCommunicator()
   .autoDetectConfig()
   .onMessage(async (tiktok_url) => {

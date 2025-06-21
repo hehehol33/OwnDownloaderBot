@@ -1,4 +1,5 @@
 import fs from "fs";
+import { WebSocket } from "bun:web";
 import Logger from "./logger.js";
 
 class WebSocketCommunicator {
@@ -11,12 +12,12 @@ class WebSocketCommunicator {
     this.logger = new Logger({ appName: 'communicator.tiktok' });
   }
 
-  // Автоматичне визначення налаштувань на основі середовища
+  // Auto-detect configuration based on environment
   autoDetectConfig() {
-    // Визначення порту
+    // Port detection
     const port = process.env.PORT || 8098;
     
-    // Визначення хоста на основі середовища (Docker або локальний запуск)
+    // Host detection based on environment (Docker or local)
     const isDocker = fs.existsSync("/.dockerenv");
     const host = isDocker ? 
       (process.env.SERVER_HOST || "tgbot") : 
@@ -72,7 +73,7 @@ class WebSocketCommunicator {
       setTimeout(() => this.connect(initialMessage), 7000);
     };
 
-    // Коректне завершення при зупинці програми
+    // Proper shutdown on program termination
     process.on("SIGINT", () => {
       this.logger.info("Disconnecting from bot");
       this.disconnect();

@@ -1,6 +1,3 @@
-/**
- * Логер, сумісний з форматом Python-логера в проекті
- */
 class Logger {
   static LEVELS = {
     DEBUG: 0,
@@ -11,9 +8,9 @@ class Logger {
   };
 
   constructor(options = {}) {
-    // Отримання рівня логування з env або використання значення за замовчуванням
+    // Get log level from env or use default
     const envLogLevel = process.env.LOG_LEVEL?.toUpperCase();
-    let configLevel = Logger.LEVELS.DEBUG;
+    let configLevel = Logger.LEVELS.INFO;
     
     if (envLogLevel && Logger.LEVELS[envLogLevel] !== undefined) {
       configLevel = Logger.LEVELS[envLogLevel];
@@ -25,7 +22,7 @@ class Logger {
   }
 
   formatMessage(level, message) {
-    // Формат: "YYYY-MM-DD HH:MM:SS.mmm - appName - LEVEL - message"
+    // Format: "YYYY-MM-DD HH:MM:SS.mmm - appName - LEVEL - message"
     const timestamp = new Date().toISOString().replace('T', ' ').replace('Z', '');
     return `${timestamp} - ${this.appName} - ${level} - ${message}`;
   }
@@ -58,21 +55,21 @@ class Logger {
     }
   }
 
-  // Логування об'єктів JSON у гарному форматі
+  // Log JSON objects in a pretty format
   logObject(level, prefix, obj) {
     const jsonString = JSON.stringify(obj, null, 2);
     this[level](`${prefix}:\n${jsonString}`);
   }
 
-  // Статичний метод для створення логера, подібно до Python-версії
+  // Static method to create logger, similar to Python version
   static setup(name, level) {
     return new Logger({ appName: name, level });
   }
 }
 
-// Налаштування базового логера для узгодження з Python-версією
+// Configure base logger to match Python version
 export function configure_logging() {
-  // Встановлюємо рівень логування з env
+  // Set log level from environment variable
   const envLogLevel = process.env.LOG_LEVEL?.toUpperCase();
   if (envLogLevel && console[envLogLevel.toLowerCase()]) {
     console.log(`Setting log level to ${envLogLevel}`);
