@@ -9,8 +9,10 @@ using TikTok_bot;
 class Program
 {
     const string filePath = "settings.json";
+    private const string DownloadUrl = "http://localhost:8080/download";
+    private const string DeleteUrl = "http://localhost:8080/delete";
     static readonly ITelegramBotClient bot = new TelegramBotClient(Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN"));
-    //Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN")
+    //Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN") 
     static readonly List<WebSocket> clients = [];
     static readonly Dictionary<WebSocket, string> clientPlatforms = [];
     static readonly Dictionary<WebSocket, long> clientChatIds = [];
@@ -50,7 +52,7 @@ class Program
                 {
                     HttpListenerWebSocketContext wsContext = await context.AcceptWebSocketAsync(null);
                     WebSocket ws = wsContext.WebSocket;
-                    _ = WebSocketServer.HandleWebSocket(filePath, ws, clients, clientPlatforms, clientChatIds, clientUpdates, bot);
+                    _ = WebSocketServer.HandleWebSocket(DownloadUrl, DeleteUrl, filePath, ws, clients, clientPlatforms, clientChatIds, clientUpdates, bot);
                 }
                 else
                 {

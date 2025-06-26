@@ -9,6 +9,8 @@ from concurrent.futures import ThreadPoolExecutor
 import yt_dlp
 from logger_config import setup_logger, configure_logging
 from communicator import WebSocketCommunicator, MediaType, MediaItem, FetchResult
+from flask import Flask, send_file, jsonify, request
+import threading
 
 # Logger configuration
 configure_logging()
@@ -138,38 +140,33 @@ def _fetch_media_items_sync(url: str) -> list[MediaItem]:
         # Handle videos (both regular and shorts)
         content_type = "shorts" if is_shorts(url) else "video"
         logger.info(f"Fetching content: {url} ({content_type})")
-        
-        # Configure yt-dlp options
-        ydl_opts = {
+        # Создаём папку для загрузок, если её нет
+        os.makedirs("downloads", exist_ok=True)
+        # Скачиваем видео с уникальным именем
+        with yt_dlp.YoutubeDL({
             'format': 'best[ext=mp4]',
             'quiet': True,
             'no_warnings': True,
             'noplaylist': True,
-        }
-        
-        # Extract information without downloading
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            
+            'outtmpl': 'downloads/video.mp4',
+            'concurrent_fragment_downloads': 4  # или 8
+        }) as ydl:
+            info = ydl.extract_info(url, download=True)
             if info:
-                # Get full resolution (width x height)
+                filename = f"video.mp4"
+                file_path = os.path.join("downloads", filename)
+                # Можно добавить путь к файлу или просто логировать
+                logger.info(f"Видео сохранено: {file_path}")
+                media_items.append(MediaItem(
+                    type=MediaType.VIDEO,
+                    url=file_path
+                ))
+                # Логирование
                 width = info.get('width', '?')
                 height = info.get('height', '?')
                 resolution = f"{width}x{height}"
-                
-                # Create video info string for logging
                 video_info = f"{info.get('title', 'Unknown')} ({resolution})"
                 logger.info(f"Found {content_type}: {video_info}")
-                
-                # Create MediaItem with available information
-                video_url = info.get('url')
-                if video_url:
-                    media_items.append(MediaItem(
-                        type=MediaType.VIDEO,
-                        url=video_url
-                    ))
-                else:
-                    logger.warning("No direct video URL found in yt-dlp info")
                 
     except Exception as e:
         logger.exception(f"Error fetching content: {e}")
@@ -223,8 +220,60 @@ async def main() -> None:
     logger.info("Starting WebSocket communicator")
     await communicator.run()
 
+def run_flask_server():
+    app = Flask(__name__)
+
+    @app.route('/download', methods=['GET'])
+    def download_video():
+        file_path = os.path.join('downloads', 'video.mp4')
+        if os.path.exists(file_path):
+            return send_file(file_path, as_attachment=True)
+        else:
+            return jsonify({'error': 'Файл не найден'}), 404
+
+    @app.route('/delete', methods=['POST', 'GET', 'DELETE'])
+    def delete_video():
+        file_path = os.path.join('downloads', 'video.mp4')
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                    return jsonify({'status': f'Файл удалён (попытка {attempt})'})
+                except Exception as e:
+                    if attempt < max_attempts:
+                        time.sleep(1)
+                        continue
+                    else:
+                        return jsonify({'error': f'Не удалось удалить файл: {str(e)}'}), 500
+            else:
+                return jsonify({'error': 'Файл не найден'}), 404
+        return jsonify({'error': 'Не удалось удалить файл после нескольких попыток'}), 500
+
+    app.run(host='0.0.0.0', port=8080)
+
+def periodic_video_cleanup():
+    file_path = os.path.join('downloads', 'video.mp4')
+    while True:
+        time.sleep(60)  # Проверять раз в минуту
+        if os.path.exists(file_path):
+            try:
+                # Пробуем открыть файл на запись, чтобы убедиться, что он не занят
+                with open(file_path, 'a'):
+                    pass
+                os.remove(file_path)
+                logger.info('Фоновая очистка: видео удалено автоматически')
+            except Exception as e:
+                logger.info(f'Фоновая очистка: не удалось удалить видео — {e}')
+
 if __name__ == "__main__":
     try:
+        # Запуск фоновой очистки видео
+        cleanup_thread = threading.Thread(target=periodic_video_cleanup, daemon=True)
+        cleanup_thread.start()
+        # Запуск Flask-сервера в отдельном потоке
+        flask_thread = threading.Thread(target=run_flask_server, daemon=True)
+        flask_thread.start()
         # Use asyncio.run
         asyncio.run(main())
     except KeyboardInterrupt:

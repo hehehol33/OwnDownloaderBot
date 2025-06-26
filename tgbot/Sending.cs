@@ -44,5 +44,6 @@ namespace TikTok_bot
             // Логируем информацию о том, что ссылка была отправлена
             Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Sent link to {clientPlatforms[ws]} client for chat ID: {chatId}");
         }
+      
     }
 }
