@@ -149,8 +149,10 @@ def _fetch_media_items_sync(url: str) -> list[MediaItem]:
             'no_warnings': True,
             'noplaylist': True,
             'outtmpl': 'downloads/video.mp4',
-            'concurrent_fragment_downloads': 4  # или 8
+            'concurrent_fragment_downloads': 4,  # напрямую на скорость загрузки влияет
+            'cookiefile': 'cookies.txt'
         }) as ydl:
+            instant_video_cleanup()
             info = ydl.extract_info(url, download=True)
             if info:
                 filename = f"video.mp4"
@@ -255,7 +257,7 @@ def run_flask_server():
 def periodic_video_cleanup():
     file_path = os.path.join('downloads', 'video.mp4')
     while True:
-        time.sleep(60)  # Проверять раз в минуту
+        time.sleep(360)  #  хз скок норм
         if os.path.exists(file_path):
             try:
                 # Пробуем открыть файл на запись, чтобы убедиться, что он не занят
@@ -266,6 +268,11 @@ def periodic_video_cleanup():
             except Exception as e:
                 logger.info(f'Фоновая очистка: не удалось удалить видео — {e}')
 
+def instant_video_cleanup():
+    file_path = os.path.join('downloads', 'video.mp4')
+    if os.path.exists(file_path):
+        os.remove(file_path)
+        logger.info('Очистка: видео удалено автоматически')
 if __name__ == "__main__":
     try:
         # Запуск фоновой очистки видео
