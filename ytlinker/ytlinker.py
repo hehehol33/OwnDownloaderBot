@@ -147,7 +147,7 @@ def _fetch_media_items_sync(url: str) -> list[MediaItem]:
             'format': 'best[ext=mp4]',
             'quiet': True,
             'no_warnings': True,
-            'noplaylist': True,
+            'noplaylist': True, 
             'outtmpl': 'downloads/video.mp4',
             'concurrent_fragment_downloads': 4,  # напрямую на скорость загрузки влияет
             'cookiefile': 'cookies.txt'
@@ -257,7 +257,7 @@ def run_flask_server():
 def periodic_video_cleanup():
     file_path = os.path.join('downloads', 'video.mp4')
     while True:
-        time.sleep(360)  #  хз скок норм
+        time.sleep(3600)  #  хз скок норм увеличил до 1 часа потому что ои жалко
         if os.path.exists(file_path):
             try:
                 # Пробуем открыть файл на запись, чтобы убедиться, что он не занят

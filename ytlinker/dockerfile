@@ -17,7 +17,7 @@ COPY req.txt ./
     
 # Install Python dependencies to a temporary location and clean cache
 RUN pip install --upgrade pip \
-    && pip install --prefix=/install -r req.txt \
+    && pip install -r req.txt \
     && rm -rf ~/.cache
     
 # --- Stage 2: final image with ffmpeg ---
