@@ -32,7 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
     
 # Copy installed Python packages from builder stage
-COPY --from=builder /install /usr/local
+COPY --from=builder /usr/local /usr/local
     
 # Copy application code
 COPY ytlinker.py ./
