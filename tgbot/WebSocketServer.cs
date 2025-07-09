@@ -139,7 +139,16 @@ namespace TikTok_bot
                                                 }
                                             }
                                         }
-
+                                        ChatAction action = ChatAction.UploadVideo;
+                                        if (textContent != null)
+                                        {
+                                            action = ChatAction.Typing;
+                                        }
+                                        else if (mediaList.Count > 1 && mediaList[0] is InputMediaVideo)
+                                        {
+                                            action = ChatAction.UploadPhoto;
+                                        }
+                                        await bot.SendChatAction(chatId, action);
                                         // Проверка активности пользователя для подписи
                                         UserStorage userStorage = new UserStorage(filePath);
                                         List<UserStatus> users = userStorage.LoadUsers();
@@ -153,16 +162,10 @@ namespace TikTok_bot
                                             VideoClient videoClient = new(DownloadUrl, DeleteUrl);
 
                                             //string TempFilePath = await videoClient.DownloadToFileAsync();
-                                            ChatAction action = ChatAction.UploadVideo;
-                                            if(textContent != null)
-                                            {
-                                                action = ChatAction.Typing; 
-                                            }
-                                            else if (mediaList.Count > 1 && mediaList[0] is InputMediaVideo)
-                                            {
-                                                action = ChatAction.UploadPhoto; 
-                                                using var stream = await videoClient.DownloadFileAsStreamAsync();
-                                            await bot.SendVideo(chatId, InputFile.FromStream(stream), caption: $"Sent by {sender}",  );
+
+                                            using var stream = await videoClient.DownloadFileAsStreamAsync();
+                                              
+                                            await bot.SendVideo(chatId, InputFile.FromStream(stream), caption: $"Sent by {sender}");
 
                                             Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Sent media group to user: {sender}");
                                             //Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Deleted status locally{VideoClient.DeleteFile(TempFilePath)}");
