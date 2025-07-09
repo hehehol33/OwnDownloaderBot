@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Telegram.Bot;
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
 
 namespace TikTok_bot
 {
@@ -152,8 +153,16 @@ namespace TikTok_bot
                                             VideoClient videoClient = new(DownloadUrl, DeleteUrl);
 
                                             //string TempFilePath = await videoClient.DownloadToFileAsync();
-                                            using var stream = await videoClient.DownloadFileAsStreamAsync();
-                                            await bot.SendVideo(chatId, InputFile.FromStream(stream), caption: $"Sent by {sender}");
+                                            ChatAction action = ChatAction.UploadVideo;
+                                            if(textContent != null)
+                                            {
+                                                action = ChatAction.Typing; 
+                                            }
+                                            else if (mediaList.Count > 1 && mediaList[0] is InputMediaVideo)
+                                            {
+                                                action = ChatAction.UploadPhoto; 
+                                                using var stream = await videoClient.DownloadFileAsStreamAsync();
+                                            await bot.SendVideo(chatId, InputFile.FromStream(stream), caption: $"Sent by {sender}",  );
 
                                             Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Sent media group to user: {sender}");
                                             //Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Deleted status locally{VideoClient.DeleteFile(TempFilePath)}");
