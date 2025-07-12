@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.WebSockets;
-using System.Text;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using TikTok_bot;
@@ -9,10 +8,12 @@ using TikTok_bot;
 class Program
 {
     const string filePath = "settings.json";
-    private const string DownloadUrl = "http://localhost:8080/download";
-    private const string DeleteUrl = "http://localhost:8080/delete";
-    static readonly ITelegramBotClient bot = new TelegramBotClient(Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN"));
-    //Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN") 
+    static readonly ITelegramBotClient bot = new TelegramBotClient(
+        new Telegram.Bot.TelegramBotClientOptions(
+            Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN"),
+            baseUrl: "http://localhost:8081/bot"
+        )
+    );
     static readonly List<WebSocket> clients = [];
     static readonly Dictionary<WebSocket, string> clientPlatforms = [];
     static readonly Dictionary<WebSocket, long> clientChatIds = [];
@@ -22,7 +23,7 @@ class Program
           
         static async Task Main()
         {
-            Console.WriteLine("OwnDownloader tgbot v. A5");
+            Console.WriteLine("OwnDownloader tgbot v. A6");
 
             bot.StartReceiving(UpdateHandler, ErrorHandler);
             Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Bot started!");
@@ -52,7 +53,7 @@ class Program
                 {
                     HttpListenerWebSocketContext wsContext = await context.AcceptWebSocketAsync(null);
                     WebSocket ws = wsContext.WebSocket;
-                    _ = WebSocketServer.HandleWebSocket(DownloadUrl, DeleteUrl, filePath, ws, clients, clientPlatforms, clientChatIds, clientUpdates, bot);
+                    _ = WebSocketServer.HandleWebSocket(ws, clients, clientPlatforms, clientChatIds, clientUpdates, bot);
                 }
                 else
                 {

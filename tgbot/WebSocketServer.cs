@@ -1,7 +1,6 @@
 ﻿using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
-using Microsoft.AspNetCore.Http.HttpResults;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
@@ -13,6 +12,8 @@ namespace TikTok_bot
     /// </summary>
     internal class WebSocketServer
     {
+        const string settingsFilePath = "settings.json";
+
         /// <summary>
         /// Получает полное сообщение от клиента через WebSocket, учитывая возможный недостаточный размер буфера.
         /// </summary>
@@ -41,10 +42,23 @@ namespace TikTok_bot
         }
 
         /// <summary>
+        /// Проверяет, активен ли подпись для указанного пользователя.
+        /// </summary>
+        /// <param name="chatId">ID чата пользователя.</param>
+        /// <returns>True, если подпись активна, иначе false.</returns>
+        private static bool IsSignatureActive(long chatId)
+        {
+            var userStorage = new UserStorage(settingsFilePath);
+            var users = userStorage.LoadUsers();
+            var user = users.FirstOrDefault(u => u.Id == chatId);
+            
+            // Если пользователь не найден, возвращаем true (по умолчанию подпись включена)
+            return user == null || user.IsActive;
+        }
+
+        /// <summary>
         /// Обрабатывает подключение WebSocket клиента, получает и отправляет данные через WebSocket.
         /// </summary>
-        /// <param name="videoPath">путь к видосу</param>
-        /// <param name="filePath">Путь к файлу для загрузки пользовательских данных.</param>
         /// <param name="ws">WebSocket соединение клиента.</param>
         /// <param name="clients">Список всех подключенных WebSocket клиентов.</param>
         /// <param name="clientPlatforms">Словарь, связывающий WebSocket с платформой клиента.</param>
@@ -53,9 +67,6 @@ namespace TikTok_bot
         /// <param name="bot">Объект Telegram бота для отправки сообщений и медиа.</param>
         /// <returns>Задача, представляющая асинхронную операцию обработки соединения.</returns>
         public static async Task HandleWebSocket(
-            string DownloadUrl, 
-            string DeleteUrl,
-            string filePath,
             WebSocket ws,
             List<WebSocket> clients,
             Dictionary<WebSocket, string> clientPlatforms,
@@ -96,142 +107,102 @@ namespace TikTok_bot
                         {
                             if (clientUpdates.TryGetValue(ws, out Update? update) && update != null)
                             {
-                                // Поменял часть на обработку и отправку, теперь работает как с пачкой медиа
                                 string sender = update.Message?.From?.Username ?? update.Message?.From?.FirstName ?? "Пользователь";
                                 var jsonData = JsonSerializer.Deserialize<JsonElement>(receivedData);
+                                
+                                // Проверяем, активна ли подпись для этого пользователя
+                                bool signatureActive = IsSignatureActive(chatId);
+                                
                                 if (jsonData.ValueKind == JsonValueKind.Object)
                                 {
-                                    if (jsonData.TryGetProperty("media", out JsonElement mediaElement) && mediaElement.ValueKind == JsonValueKind.Array) // Если это тип "медиа" и это массив
+                                    if (jsonData.TryGetProperty("media", out JsonElement mediaElement) && mediaElement.ValueKind == JsonValueKind.Array)
                                     {
                                         var mediaList = new List<IAlbumInputMedia>();
                                         string textContent = null;
-                                        bool flag = false;
 
-                                        foreach (var item in mediaElement.EnumerateArray()) // Перебираем все элементы массива
+                                        foreach (var item in mediaElement.EnumerateArray())
                                         {
                                             if (item.ValueKind == JsonValueKind.Object && item.TryGetProperty("type", out JsonElement typeElement))
                                             {
                                                 string type = typeElement.GetString();
 
-                                                if (type == "photo" && item.TryGetProperty("url", out JsonElement photoUrlElement)) // Если тип "фото" и ссылки есть 
+                                                if (type == "photo" && item.TryGetProperty("url", out JsonElement photoUrlElement))
                                                 {
                                                     string url = photoUrlElement.GetString();
                                                     if (!string.IsNullOrEmpty(url))
                                                     {
-                                                        mediaList.Add(new InputMediaPhoto(InputFile.FromUri(url)));  // Ложим в наш массив медиа
+                                                        mediaList.Add(new InputMediaPhoto(InputFile.FromUri(url)));
                                                     }
                                                 }
-                                                else if (type == "video" && item.TryGetProperty("url", out JsonElement videoUrlElement)) // Если тип "видео" и ссылки есть
+                                                else if (type == "video" && item.TryGetProperty("url", out JsonElement videoUrlElement))
                                                 {
                                                     string url = videoUrlElement.GetString();
-                                                    if (url.Contains("downloads"))
-                                                    {
-                                                        flag = !flag;
-                                                    }
-                                                    else if (!string.IsNullOrEmpty(url))
+                                                    if (!string.IsNullOrEmpty(url))
                                                     {
                                                         mediaList.Add(new InputMediaVideo(InputFile.FromUri(url)));
                                                     }
                                                 }
-                                                else if (type == "text" && item.TryGetProperty("content", out JsonElement contentElement)) // Если тип "текст" и контент есть
+                                                else if (type == "text" && item.TryGetProperty("content", out JsonElement contentElement))
                                                 {
                                                     textContent = contentElement.GetString();
                                                 }
                                             }
                                         }
-                                        ChatAction action = ChatAction.UploadVideo;
-                                        if (textContent != null)
-                                        {
-                                            action = ChatAction.Typing;
-                                        }
-                                        else if (mediaList.Count > 1 && mediaList[0] is InputMediaVideo)
-                                        {
-                                            action = ChatAction.UploadPhoto;
-                                        }
+
+                                        ChatAction action = mediaList.Count > 0 
+                                            ? (mediaList[0] is InputMediaVideo ? ChatAction.UploadVideo : ChatAction.UploadPhoto) 
+                                            : ChatAction.Typing;
+                                            
                                         await bot.SendChatAction(chatId, action);
-                                        // Проверка активности пользователя для подписи
-                                        UserStorage userStorage = new UserStorage(filePath);
-                                        List<UserStatus> users = userStorage.LoadUsers();
-                                        long userIdToFind = update.Message.Chat.Id;
-                                        UserStatus user = users.FirstOrDefault(u => u.Id == userIdToFind);
-                                        bool isActive = user?.IsActive ?? false;
 
-                                        
-                                        if (flag)
+                                        if (mediaList.Count > 0)
                                         {
-                                            VideoClient videoClient = new(DownloadUrl, DeleteUrl);
+                                            // Add caption to first media if there's text
+                                            if (!string.IsNullOrEmpty(textContent))
+                                            {
+                                                string caption = textContent;
+                                                if (signatureActive)
+                                                {
+                                                    caption += $"\n\nSent by {sender}";
+                                                }
 
-                                            //string TempFilePath = await videoClient.DownloadToFileAsync();
+                                                if (mediaList[0] is InputMediaPhoto photoMedia)
+                                                {
+                                                    photoMedia.Caption = caption;
+                                                }
+                                                else if (mediaList[0] is InputMediaVideo videoMedia)
+                                                {
+                                                    videoMedia.Caption = caption;
+                                                }
+                                            }
+                                            else if (signatureActive)
+                                            {
+                                                // Add simple sender attribution only if signature is active
+                                                if (mediaList[0] is InputMediaPhoto photoMedia)
+                                                {
+                                                    photoMedia.Caption = $"Sent by {sender}";
+                                                }
+                                                else if (mediaList[0] is InputMediaVideo videoMedia)
+                                                {
+                                                    videoMedia.Caption = $"Sent by {sender}";
+                                                }
+                                            }
 
-                                            using var stream = await videoClient.DownloadFileAsStreamAsync();
-                                              
-                                            await bot.SendVideo(chatId, InputFile.FromStream(stream), caption: $"Sent by {sender}");
-
+                                            await bot.SendMediaGroup(chatId, mediaList);
                                             Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Sent media group to user: {sender}");
-                                            //Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Deleted status locally{VideoClient.DeleteFile(TempFilePath)}");
-
-                                            // Await the deletion request and log the result  
-                                            await videoClient.SendDeleteRequestAsync();
-                                            Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Deleted in server");
-
-                                        }// Отправляем медиа с подписью, если нужно
-                                        else
+                                        }
+                                        else if (!string.IsNullOrEmpty(textContent))
                                         {
-
-                                            if (mediaList.Count > 0)
+                                            string message = textContent;
+                                            if (signatureActive)
                                             {
-                                                // Если есть текст и медиа - добавляем текст как подпись к первому медиа
-                                                if (!string.IsNullOrEmpty(textContent))
-                                                {
-                                                    string caption = textContent;
-                                                    if (isActive)
-                                                    {
-                                                        caption += $"\n\nSent by {sender}";
-                                                    }
-
-                                                    if (mediaList[0] is InputMediaPhoto photoMedia)
-                                                    {
-                                                        photoMedia.Caption = caption;
-                                                    }
-                                                    else if (mediaList[0] is InputMediaVideo videoMedia)
-                                                    {
-                                                        videoMedia.Caption = caption;
-                                                    }
-                                                }
-                                                // Если только медиа и пользователь активен - добавляем подпись
-                                                else if (isActive)
-                                                {
-                                                    if (mediaList[0] is InputMediaPhoto photoMedia)
-                                                    {
-                                                        photoMedia.Caption = $"Sent by {sender}";
-                                                    }
-                                                    else if (mediaList[0] is InputMediaVideo videoMedia)
-                                                    {
-                                                        videoMedia.Caption = $"Sent by {sender}";
-                                                    }
-                                                }
-
-                                                // Отправляем все медиа в одной медиагруппе
-
-                                                await bot.SendMediaGroup(chatId, mediaList);
-
-                                                Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Sent media group to user: {sender}");
+                                                message += $"\n\nSent by {sender}";
                                             }
-                                            // Если есть только текст, отправляем его отдельным сообщением
-                                            else if (!string.IsNullOrEmpty(textContent))
-                                            {
-                                                string message = textContent;
-                                                if (isActive)
-                                                {
-                                                    message += $"\n\nSent by {sender}";
-                                                }
-
-                                                await bot.SendMessage(chatId, message);
-                                                Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Sent text message to user: {sender}");
-                                            }
+                                            await bot.SendMessage(chatId, message);
+                                            Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Sent text message to user: {sender}");
                                         }
                                     }
-                                    else if (jsonData.TryGetProperty("error", out JsonElement errorElement)) // Если это пришла ошибка, говорим пользователю
+                                    else if (jsonData.TryGetProperty("error", out JsonElement errorElement))
                                     {
                                         string? errorMessage = errorElement.GetString();
                                         await bot.SendMessage(chatId, $"{errorMessage}");
@@ -239,15 +210,15 @@ namespace TikTok_bot
                                     }
                                     else
                                     {
-                                        Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Error: Unsupported data type."); // Если чортишо
-                                    }
-                                    }
-                                    else
-                                    {
                                         Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Error: Unsupported data type.");
                                     }
                                 }
+                                else
+                                {
+                                    Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Error: Unsupported data type.");
+                                }
                             }
+                        }
                         catch (Exception ex)
                         {
                             Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - JSON processing error: " + ex.Message);
@@ -255,7 +226,7 @@ namespace TikTok_bot
                     }
                 }
             }
-            finally // Закрываем соединение и чистим данные
+            finally
             {
                 clients.Remove(ws);
                 clientPlatforms.Remove(ws);
