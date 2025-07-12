@@ -12,14 +12,14 @@ services:
       - app-network
 
   tgbot:
-    image: hehehol33/owndownloaderbot:tgbot
+    build: ./tgbot
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - PORT=9120 # custom port set
+#      - PORT=9120 # custom port set
       - TGSERVER_HOST=telegram-api-server
       - TGSERVER_PORT=8081
     ports:
-      - "9120:8098"  # custom port set
+      - "8098:8098"  # custom port set
     volumes:
       - contentdownloads:/app/downloads
     depends_on:
@@ -28,29 +28,29 @@ services:
       - app-network
 
   tiktok-linker:
-    image: hehehol33/owndownloaderbot:tiktok-linker
+    build: ./tiktok-linker
     environment:
-      - PORT=9120  # custom port set
+#      - PORT=9120  # custom port set
     depends_on:
       - tgbot
     networks:
       - app-network
 
   instagram-linker:
-    image: hehehol33/owndownloaderbot:instagram-linker
+    build: ./instagram-linker
     environment:
       - IG_USERNAME=${IG_USERNAME}
       - IG_PASSWORD=${IG_PASSWORD}
-      - PORT=9120  # custom port set
+#      - PORT=9120  # custom port set
     depends_on:
       - tgbot
     networks:
       - app-network
 
   youtube-linker:  
-    image: hehehol33/owndownloaderbot:youtube-linker
+    build: ./youtube-linker
     environment:
-      - PORT=9120 # custom port set
+#      - PORT=9120 # custom port set
     depends_on:
       - tgbot
     volumes:
