@@ -65,6 +65,7 @@ namespace TikTok_bot
         /// <param name="clientChatIds">Словарь, связывающий WebSocket с идентификатором чата клиента.</param>
         /// <param name="clientUpdates">Словарь, связывающий WebSocket с обновлениями от клиента.</param>
         /// <param name="bot">Объект Telegram бота для отправки сообщений и медиа.</param>
+        /// <param name="isUsingLocalTGServer">Флаг, указывающий, используется ли локальный сервер Telegram.</param>
         /// <returns>Задача, представляющая асинхронную операцию обработки соединения.</returns>
         public static async Task HandleWebSocket(
             WebSocket ws,
@@ -72,7 +73,8 @@ namespace TikTok_bot
             Dictionary<WebSocket, string> clientPlatforms,
             Dictionary<WebSocket, long> clientChatIds,
             Dictionary<WebSocket, Update?> clientUpdates,
-            ITelegramBotClient bot)
+            ITelegramBotClient bot,
+            bool isUsingLocalTGServer = false)  // Add parameter to check if using local server
         {
             byte[] buffer = new byte[2048];
 
@@ -119,6 +121,7 @@ namespace TikTok_bot
                                     {
                                         var mediaList = new List<IAlbumInputMedia>();
                                         string textContent = null;
+                                        bool hasFileProtocolUrl = false;
 
                                         foreach (var item in mediaElement.EnumerateArray())
                                         {
@@ -126,18 +129,24 @@ namespace TikTok_bot
                                             {
                                                 string type = typeElement.GetString();
 
-                                                if (type == "photo" && item.TryGetProperty("url", out JsonElement photoUrlElement))
+                                                // Check for file:// URLs
+                                                if ((type == "photo" || type == "video") && 
+                                                    item.TryGetProperty("url", out JsonElement urlElement))
                                                 {
-                                                    string url = photoUrlElement.GetString();
-                                                    if (!string.IsNullOrEmpty(url))
+                                                    string url = urlElement.GetString() ?? "";
+                                                    
+                                                    // Check if the URL starts with file:// and we're not using local server
+                                                    if (url.StartsWith("file://", StringComparison.OrdinalIgnoreCase) && !isUsingLocalTGServer)
+                                                    {
+                                                        hasFileProtocolUrl = true;
+                                                        continue;
+                                                    }
+
+                                                    if (type == "photo" && !string.IsNullOrEmpty(url))
                                                     {
                                                         mediaList.Add(new InputMediaPhoto(InputFile.FromUri(url)));
                                                     }
-                                                }
-                                                else if (type == "video" && item.TryGetProperty("url", out JsonElement videoUrlElement))
-                                                {
-                                                    string url = videoUrlElement.GetString();
-                                                    if (!string.IsNullOrEmpty(url))
+                                                    else if (type == "video" && !string.IsNullOrEmpty(url))
                                                     {
                                                         mediaList.Add(new InputMediaVideo(InputFile.FromUri(url)));
                                                     }
@@ -149,6 +158,15 @@ namespace TikTok_bot
                                             }
                                         }
 
+                                        // If we found file:// URLs but we're not using local server, send an error
+                                        if (hasFileProtocolUrl && !isUsingLocalTGServer)
+                                        {
+                                            await bot.SendMessage(chatId, "Error: Downloading this content is not possible without a local Telegram server.");
+                                            Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Blocked file:// URL for user: {sender} - using official API");
+                                            continue;
+                                        }
+
+                                        // Rest of the media handling code remains the same
                                         ChatAction action = mediaList.Count > 0 
                                             ? (mediaList[0] is InputMediaVideo ? ChatAction.UploadVideo : ChatAction.UploadPhoto) 
                                             : ChatAction.Typing;
