@@ -48,7 +48,7 @@ services:
       - app-network
 
   youtube-linker:  
-    build: ./youtube-linker
+    build: ./ytlinker
 #    environment:
 #      - PORT=9120 # custom port set
     depends_on:
