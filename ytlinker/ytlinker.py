@@ -22,7 +22,7 @@ VERSION = "A3"
 MAX_RETRIES = 2
 RETRY_DELAY = 1.5
 MAX_WORKERS = 4
-DOWNLOAD_FOLDER = r"C:\OwnDownloaderBot\testfolder"  # Папка для збереження відео
+DOWNLOAD_FOLDER = os.getenv('DOWNLOAD_FOLDER', r"C:\OwnDownloaderBot\testfolder")  # Папка для збереження відео
 CLEANUP_INTERVAL = 60* 30  # 30 минут в секундах
 
 # Necessary regex

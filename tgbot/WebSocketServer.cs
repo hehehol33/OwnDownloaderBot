@@ -233,19 +233,35 @@ namespace TikTok_bot
                                             }
 
 
-                                            await bot.SendMediaGroup(chatId, mediaList);
-                                            if (fileToDelete != null)
+                                            try
                                             {
-                                                try
+                                                var response = await bot.SendMediaGroup(chatId, mediaList);
+
+                                                if (response != null)
                                                 {
-                                                    File.Delete(fileToDelete);
-                                                    Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Deleted file: {fileToDelete}");
+                                                    if (!string.IsNullOrEmpty(fileToDelete) && File.Exists(fileToDelete))
+                                                    {
+                                                        try
+                                                        {
+                                                            File.Delete(fileToDelete);
+                                                            Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - File deleted: {fileToDelete}");
+                                                        }
+                                                        catch (Exception ex)
+                                                        {
+                                                            Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Failed to delete file: {fileToDelete} - Error: {ex.Message}");
+                                                        }
+                                                    }
                                                 }
-                                                catch (Exception ex)
+                                                else
                                                 {
-                                                    Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Failed to delete {fileToDelete}: {ex.Message}");
+                                                    Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Telegram did not return any media messages. File not deleted.");
                                                 }
                                             }
+                                            catch (Exception ex)
+                                            {
+                                                Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Failed to send media group: {ex.Message}");
+                                            }
+
 
 
                                             Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Sent media group to user: {sender}");
