@@ -51,7 +51,7 @@ namespace TikTok_bot
             var userStorage = new UserStorage(settingsFilePath);
             var users = userStorage.LoadUsers();
             var user = users.FirstOrDefault(u => u.Id == chatId);
-            
+
             // Если пользователь не найден, возвращаем true (по умолчанию подпись включена)
             return user == null || user.IsActive;
         }
@@ -111,10 +111,10 @@ namespace TikTok_bot
                             {
                                 string sender = update.Message?.From?.Username ?? update.Message?.From?.FirstName ?? "Пользователь";
                                 var jsonData = JsonSerializer.Deserialize<JsonElement>(receivedData);
-                                
+
                                 // Проверяем, активна ли подпись для этого пользователя
                                 bool signatureActive = IsSignatureActive(chatId);
-                                
+
                                 if (jsonData.ValueKind == JsonValueKind.Object)
                                 {
                                     if (jsonData.TryGetProperty("media", out JsonElement mediaElement) && mediaElement.ValueKind == JsonValueKind.Array)
@@ -122,6 +122,7 @@ namespace TikTok_bot
                                         var mediaList = new List<IAlbumInputMedia>();
                                         string textContent = null;
                                         bool hasFileProtocolUrl = false;
+                                        string? fileToDelete = null;
 
                                         foreach (var item in mediaElement.EnumerateArray())
                                         {
@@ -130,15 +131,39 @@ namespace TikTok_bot
                                                 string type = typeElement.GetString();
 
                                                 // Check for file:// URLs
-                                                if ((type == "photo" || type == "video") && 
+                                                if ((type == "photo" || type == "video") &&
                                                     item.TryGetProperty("url", out JsonElement urlElement))
                                                 {
                                                     string url = urlElement.GetString() ?? "";
-                                                    
-                                                    // Check if the URL starts with file:// and we're not using local server
-                                                    if (url.StartsWith("file://", StringComparison.OrdinalIgnoreCase) && !isUsingLocalTGServer)
+
+
+                                                    if (url.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
                                                     {
-                                                        hasFileProtocolUrl = true;
+                                                        if (!isUsingLocalTGServer)
+                                                        {
+                                                            hasFileProtocolUrl = true;
+                                                            continue;
+                                                        }
+
+                                                        string localPath = url.Replace("file://", "").Replace('/', Path.DirectorySeparatorChar);
+
+                                                        if (File.Exists(localPath))
+                                                        {
+                                                            fileToDelete = localPath;
+                                                            var stream = File.OpenRead(localPath);
+                                                            if (type == "photo")
+                                                                mediaList.Add(new InputMediaPhoto(InputFile.FromStream(stream, Path.GetFileName(localPath))));
+                                                            else if (type == "video")
+                                                                mediaList.Add(new InputMediaVideo(InputFile.FromStream(stream, Path.GetFileName(localPath))));
+
+
+                                                        }
+                                                        else
+                                                        {
+                                                            Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - File not found: {localPath}");
+                                                            await bot.SendMessage(chatId, $"Error: File not found: {Path.GetFileName(localPath)}");
+                                                        }
+
                                                         continue;
                                                     }
 
@@ -150,6 +175,7 @@ namespace TikTok_bot
                                                     {
                                                         mediaList.Add(new InputMediaVideo(InputFile.FromUri(url)));
                                                     }
+
                                                 }
                                                 else if (type == "text" && item.TryGetProperty("content", out JsonElement contentElement))
                                                 {
@@ -157,6 +183,12 @@ namespace TikTok_bot
                                                 }
                                             }
                                         }
+                                        // Rest of the media handling code remains the same
+                                        ChatAction action = mediaList.Count > 0
+                                            ? (mediaList[0] is InputMediaVideo ? ChatAction.UploadVideo : ChatAction.UploadPhoto)
+                                            : ChatAction.Typing;
+
+                                        await bot.SendChatAction(chatId, action);
 
                                         // If we found file:// URLs but we're not using local server, send an error
                                         if (hasFileProtocolUrl && !isUsingLocalTGServer)
@@ -166,12 +198,6 @@ namespace TikTok_bot
                                             continue;
                                         }
 
-                                        // Rest of the media handling code remains the same
-                                        ChatAction action = mediaList.Count > 0 
-                                            ? (mediaList[0] is InputMediaVideo ? ChatAction.UploadVideo : ChatAction.UploadPhoto) 
-                                            : ChatAction.Typing;
-                                            
-                                        await bot.SendChatAction(chatId, action);
 
                                         if (mediaList.Count > 0)
                                         {
@@ -206,7 +232,22 @@ namespace TikTok_bot
                                                 }
                                             }
 
+
                                             await bot.SendMediaGroup(chatId, mediaList);
+                                            if (fileToDelete != null)
+                                            {
+                                                try
+                                                {
+                                                    File.Delete(fileToDelete);
+                                                    Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Deleted file: {fileToDelete}");
+                                                }
+                                                catch (Exception ex)
+                                                {
+                                                    Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Failed to delete {fileToDelete}: {ex.Message}");
+                                                }
+                                            }
+
+
                                             Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Sent media group to user: {sender}");
                                         }
                                         else if (!string.IsNullOrEmpty(textContent))
