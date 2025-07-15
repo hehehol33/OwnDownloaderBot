@@ -20,10 +20,11 @@ logger = setup_logger("youtube.linker")
 # Constants
 VERSION = "A3"
 MAX_RETRIES = 2
-RETRY_DELAY = 1.5
+RETRY_DELAY = 1.5 
 MAX_WORKERS = 4
-DOWNLOAD_FOLDER = os.getenv('DOWNLOAD_FOLDER', r"C:\OwnDownloaderBot\testfolder")  # Папка для збереження відео
-CLEANUP_INTERVAL = 60* 30  # 30 минут в секундах
+DEFAULT_DOWNLOAD_FOLDER = r"C:\OwnDownloaderBot\testfolder"  # Default download folder
+DOWNLOAD_FOLDER = os.getenv("DOWNLOAD_FOLDER", DEFAULT_DOWNLOAD_FOLDER)  # Download folder from environment variable, or default
+CLEANUP_INTERVAL = 1800  # 30 minutes in seconds
 
 # Necessary regex
 RE_INITIAL_DATA = re.compile(r"ytInitialData\s*=\s*({.*?});?\s*</script>", re.DOTALL)
@@ -32,84 +33,7 @@ RE_IMAGE_QUALITY = re.compile(r"=s(\d+)-")
 # Thread pool for CPU-bound operations
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
-def is_file_in_use(file_path: str) -> bool:
-    """
-    Проверяет, используется ли файл другим процессом.
-    Возвращает True если файл заблокирован.
-    """
-    try:
-        # Пытаемся открыть файл в режиме записи
-        with open(file_path, 'r+b') as f:
-            return False
-    except (IOError, PermissionError):
-        return True
-    except Exception:
-        return False
 
-def safe_delete_file(file_path: str) -> bool:
-    """
-    Безопасно удаляет файл, проверяя, не используется ли он.
-    Возвращает True если файл удален, False если не удалось.
-    """
-    try:
-        if os.path.exists(file_path):
-            if is_file_in_use(file_path):
-                logger.warning(f"Файл {file_path} используется, пропускаем удаление")
-                return False
-            else:
-                os.remove(file_path)
-                logger.info(f"Удален файл: {file_path}")
-                return True
-    except Exception as e:
-        logger.error(f"Ошибка при удалении файла {file_path}: {e}")
-        return False
-    return False
-
-def cleanup_download_folder():
-    """
-    Очищает папку загрузок от старых видео файлов.
-    Удаляет только файлы старше 1 часа.
-    """
-    try:
-        if not os.path.exists(DOWNLOAD_FOLDER):
-            return
-            
-        current_time = datetime.now()
-        deleted_count = 0
-        skipped_count = 0
-        
-        for filename in os.listdir(DOWNLOAD_FOLDER):
-            if filename.endswith('.mp4'):
-                file_path = os.path.join(DOWNLOAD_FOLDER, filename)
-                
-                # Проверяем время создания файла
-                file_time = datetime.fromtimestamp(os.path.getctime(file_path))
-                age_hours = (current_time - file_time).total_seconds() / 3600
-                
-                # Удаляем файлы старше 1 часа  . хз сколько нужно...
-                if age_hours > 1:
-                    if safe_delete_file(file_path):
-                        deleted_count += 1
-                    else:
-                        skipped_count += 1
-                        
-        if deleted_count > 0 or skipped_count > 0:
-            logger.info(f"Очистка папки: удалено {deleted_count} файлов, пропущено {skipped_count} (используются)")
-            
-    except Exception as e:
-        logger.error(f"Ошибка при очистке папки: {e}")
-
-async def cleanup_task():
-    """
-    Асинхронная задача для периодической очистки папки.
-    """
-    while True:
-        try:
-            await asyncio.sleep(CLEANUP_INTERVAL)
-            logger.info("Запуск плановой очистки папки загрузок")
-            cleanup_download_folder()
-        except Exception as e:
-            logger.error(f"Ошибка в задаче очистки: {e}")
 
 # YouTube content type detection
 def is_shorts(url: str) -> bool:
@@ -234,7 +158,6 @@ def _fetch_media_items_sync(url: str) -> list[MediaItem]:
         
         # Download video
         with yt_dlp.YoutubeDL({
-            # Змінений формат для уникнення потреби в ffmpeg
             'format': '398/22/18/best[ext=mp4]',  # 720п потом 480 потом 360 потом их заглушка
             'quiet': True,
             'no_warnings': True,
@@ -243,18 +166,18 @@ def _fetch_media_items_sync(url: str) -> list[MediaItem]:
             'concurrent_fragment_downloads': 4,
             'cookiefile': 'cookies.txt'
         }) as ydl:
-            # Сначала получим информацию о доступных форматах
+            # Get information about available formats
             info = ydl.extract_info(url, download=False)
             
             if info:
-                # Логируем доступные форматы
+                # Log available formats at DEBUG level
                 formats = info.get('formats', [])
-                logger.info(f"Доступные форматы для {info.get('title', 'Unknown')}:")
+                logger.debug(f"Available formats for {info.get('title', 'Unknown')}:")
                 for fmt in formats:
                     if fmt.get('ext') == 'mp4' and fmt.get('height'):
-                        logger.info(f"  Формат {fmt.get('format_id', 'N/A')}: {fmt.get('height')}p, {fmt.get('filesize', 'N/A')} bytes")
+                        logger.debug(f"  Format {fmt.get('format_id', 'N/A')}: {fmt.get('height')}p, filesize: {fmt.get('filesize_approx', 'N/A')} bytes")
                 
-                # Теперь скачиваем
+                # Now download the selected format
                 info = ydl.extract_info(url, download=True)
             
             if info:
@@ -330,13 +253,7 @@ async def main() -> None:
     )
     
     logger.info("Starting WebSocket communicator")
-    
-    # Запускаем очистку папки параллельно с основным процессом
-    cleanup_coro = cleanup_task()
-    communicator_coro = communicator.run()
-    
-    # Запускаем обе задачи одновременно
-    await asyncio.gather(cleanup_coro, communicator_coro)
+    await communicator.run()
 
 if __name__ == "__main__":
     try:

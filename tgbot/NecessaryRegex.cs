@@ -1,9 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Text.RegularExpressions;
-using System.Threading.Tasks;
+﻿using System.Text.RegularExpressions;
 
 namespace TikTok_bot
 {
@@ -35,7 +30,7 @@ namespace TikTok_bot
             Match match = regex.Match(text);
             return match.Success ? match.Value.Trim() : "";
         }
-        
+
         /// <summary>
         /// Извлекает ссылку на YouTube из переданного текста.
         /// </summary>

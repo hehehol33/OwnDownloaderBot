@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.WebSockets;
 using Telegram.Bot;
+using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
 using TikTok_bot;
 
@@ -8,6 +9,8 @@ using TikTok_bot;
 class Program
 {
     const string filePath = "settings.json";
+
+    const string VERSION = "A6";
     
     // Default values for bot API configuration (without protocol prefix)
     const string DEFAULT_LOCAL_TGAPI_HOST = "localhost";
@@ -21,6 +24,18 @@ class Program
     
     // Construct the base URL directly with the protocol prefix
     static readonly string TGSERVER_BASE_URL = $"http://{TGSERVER_HOST}:{TGSERVER_PORT}/bot";
+
+    // --- FileIO Configuration ---
+    const string DEFAULT_DOWNLOAD_FOLDER = "C:\\testfolder"; 
+    static readonly string DOWNLOAD_FOLDER = Environment.GetEnvironmentVariable("DOWNLOAD_FOLDER") ?? DEFAULT_DOWNLOAD_FOLDER; 
+    const int STALE_FILE_TIMEOUT_SECONDS = 1800; // How old files need to be cleaned up
+    const int CLEANUP_INTERVAL_SECONDS = 3600;  // How often to check for stale files   
+    // ---------------------------------
+
+    // --- Logging Configuration ---
+    const string LOG_LEVEL_ENV_VAR = "LOG_LEVEL";
+    const LogLevel DEFAULT_LOG_LEVEL = LogLevel.INFO;
+    // -----------------------------
     
     // Initialize the bot with appropriate server (determined at runtime)
     static readonly ITelegramBotClient bot;
@@ -29,28 +44,58 @@ class Program
     // Static constructor to initialize bot with proper server
     static Program()
     {
-        // Try to connect to local server first
+        var botToken = Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN");
+        if (string.IsNullOrEmpty(botToken))
+        {
+            Logger.Critical("TELEGRAM_BOT_TOKEN environment variable not set.");
+            Environment.Exit(1); // Exit if token is not provided
+        }
+
+        // --- Attempt 1: Try to connect to the local server ---
         try
         {
             var localBot = new TelegramBotClient(
-                new Telegram.Bot.TelegramBotClientOptions(
-                    Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN"),
-                    baseUrl: TGSERVER_BASE_URL
-                )
+                new Telegram.Bot.TelegramBotClientOptions(botToken, baseUrl: TGSERVER_BASE_URL)
             );
             
-            // Perform a simple API call to test if server is working
-            var me = localBot.GetMe().GetAwaiter().GetResult();
+            // Perform an API call to test the connection and token
+            localBot.GetMe().GetAwaiter().GetResult();
             
-            // If we got here, local server is working
+            // If successful, set the bot and finish initialization
             bot = localBot;
             isUsingLocalTGServer = true;
+            return; // Successfully connected to local server
         }
-        catch
+        catch (Exception ex)
         {
-            // If local server failed, use official API
-            bot = new TelegramBotClient(Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN"));
+            Logger.Warning($"Could not connect to local Telegram API server. Reason: {ex.Message}");
+            // The local server might be down, or the token is invalid.
+            // Now, we fall back to the official server to check the token.
+        }
+
+        // --- Attempt 2: Fallback to the official server ---
+        try
+        {
+            var officialBot = new TelegramBotClient(botToken);
+            
+            // Perform an API call to test the token against the official server
+            officialBot.GetMe().GetAwaiter().GetResult();
+
+            // If successful, set the bot and finish initialization
+            bot = officialBot;
             isUsingLocalTGServer = false;
+        }
+        catch (ApiRequestException apiEx)
+        {
+            // This specifically catches errors from the Telegram API (e.g., 401 Unauthorized)
+            Logger.Critical($"Failed to connect to official Telegram API. The token is likely invalid. Error {apiEx.ErrorCode}: {apiEx.Message}");
+            Environment.Exit(1); // Exit because the token is invalid
+        }
+        catch (Exception ex)
+        {
+            // This catches other errors like network issues
+            Logger.Critical($"A critical error occurred while connecting to the official Telegram API: {ex.Message}");
+            Environment.Exit(1); // Exit on other critical errors
         }
     }
     
@@ -61,19 +106,41 @@ class Program
           
     static async Task Main()
     {
-        Console.WriteLine("OwnDownloader tgbot v. A5");
+        // Configure Logger from environment variable or use default
+        var logLevelStr = Environment.GetEnvironmentVariable(LOG_LEVEL_ENV_VAR);
+        if (!Enum.TryParse<LogLevel>(logLevelStr, true, out var configuredLogLevel))
+        {
+            configuredLogLevel = DEFAULT_LOG_LEVEL;
+        }
+        Logger.Configure(configuredLogLevel);
+
+        Logger.Info($"OwnDownloader tgbot v. {VERSION}");
 
         bot.StartReceiving(UpdateHandler, ErrorHandler);
-        Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Bot started!");
+        Logger.Info("Bot started!");
         
         if (isUsingLocalTGServer)
         {
-            Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Connected to local Telegram Bot API Server: {TGSERVER_BASE_URL}");
+            Logger.Info($"Connected to local Telegram Bot API Server: {TGSERVER_BASE_URL}");
         }
         else
         {
-            Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Failed to connect to local server, using official Telegram Bot API Server");
+            Logger.Info("Failed to connect to local server, using official Telegram Bot API Server");
         }
+
+        // Create download directory if it doesn't exist
+        if (!Directory.Exists(DOWNLOAD_FOLDER))
+        {
+            Directory.CreateDirectory(DOWNLOAD_FOLDER);
+            Logger.Info($"Created download directory: {DOWNLOAD_FOLDER}");
+        }
+
+        // Start the file cleanup task
+        FileIO.StartFileCleanupTask(
+            DOWNLOAD_FOLDER,
+            "*.*",
+            STALE_FILE_TIMEOUT_SECONDS,
+            CLEANUP_INTERVAL_SECONDS);
 
         // Устанавливаем команды для бота
         await BotCommands.SetCommandsAsync(bot);
@@ -91,7 +158,7 @@ class Program
         }
 
         listener.Start();
-        Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - WebSocket server active on port {wsPort}");
+        Logger.Info($"WebSocket server active on port {wsPort}");
 
         while (true)
         {
@@ -106,7 +173,7 @@ class Program
             {
                 context.Response.StatusCode = 400;
                 context.Response.Close();
-                Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Invalid HTTP request received and closed with 400 status.");
+                Logger.Warning("Invalid HTTP request received and closed with 400 status.");
             }
         }
     }
@@ -148,7 +215,7 @@ class Program
 
             if (!string.IsNullOrEmpty(tiktokLink) || !string.IsNullOrEmpty(instagramLink) || !string.IsNullOrEmpty(youtubeLink))
             {
-                Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - User: {sender}, Link: {messageText}");
+                Logger.Info($"User: {sender}, Link: {messageText}");
 
                 foreach (var ws in clients)
                 {
@@ -176,7 +243,7 @@ class Program
     }
     static Task ErrorHandler(ITelegramBotClient botClient, Exception exception, CancellationToken token)
     {
-        Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Error: " + exception.Message);
+        Logger.Error("Error: " + exception.Message);
         return Task.CompletedTask;
     }
 }

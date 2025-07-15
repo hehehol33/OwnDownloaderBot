@@ -1,9 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net.WebSockets;
+﻿using System.Net.WebSockets;
 using System.Text;
-using System.Threading.Tasks;
 using Telegram.Bot.Types;
 
 namespace TikTok_bot
@@ -42,7 +38,8 @@ namespace TikTok_bot
             await ws.SendAsync(new ArraySegment<byte>(data), WebSocketMessageType.Text, true, CancellationToken.None);
 
             // Логируем информацию о том, что ссылка была отправлена
-            Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Sent link to {clientPlatforms[ws]} client for chat ID: {chatId}");
+            Logger.Info($"Sent link to {clientPlatforms[ws]} client for chat ID: {chatId}");
+
         }
       
     }

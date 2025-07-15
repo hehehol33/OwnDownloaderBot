@@ -8,6 +8,8 @@ services:
       - TELEGRAM_API_HASH=${TELEGRAM_API_HASH}
     ports:
       - "8081:8081"
+    volumes:
+      - contentdownloads:/appdownloads
     networks:
       - app-network
 
@@ -18,10 +20,11 @@ services:
 #      - PORT=9120 # custom port set
       - TGSERVER_HOST=telegram-api-server
       - TGSERVER_PORT=8081
+      - DOWNLOAD_FOLDER=/appdownloads
     ports:
       - "8098:8098"  # custom port set
     volumes:
-      - contentdownloads:/app/downloads
+      - contentdownloads:/appdownloads
     depends_on:
       - telegram-api-server
     networks:
@@ -49,12 +52,13 @@ services:
 
   youtube-linker:  
     build: ./ytlinker
-#    environment:
+    environment:
 #      - PORT=9120 # custom port set
+      - DOWNLOAD_FOLDER=/appdownloads
     depends_on:
       - tgbot
     volumes:
-      - contentdownloads:/app/downloads
+      - contentdownloads:/appdownloads
     networks:
       - app-network
 

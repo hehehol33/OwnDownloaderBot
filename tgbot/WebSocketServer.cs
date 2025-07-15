@@ -30,7 +30,7 @@ namespace TikTok_bot
                 if (result.MessageType == WebSocketMessageType.Close)
                 {
                     await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closed by client", CancellationToken.None);
-                    Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - WebSocket client disconnected");
+                    Logger.Info("WebSocket client disconnected");
                     break;
                 }
 
@@ -80,17 +80,17 @@ namespace TikTok_bot
 
             // Получаем данные о регистрации
             var registrationData = await ReceiveFullMessage(ws, buffer);
-            Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Received registration: " + registrationData);
+            Logger.Debug("Received registration: " + registrationData);
 
             if (registrationData.StartsWith("platform:"))
             {
                 string platform = registrationData.Split(':')[1].Trim().ToLower();
                 clientPlatforms[ws] = platform;
-                Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Client registered for platform: " + platform);
+                Logger.Info("Client registered for platform: " + platform);
             }
             else
             {
-                Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Invalid registration message.");
+                Logger.Warning("Invalid registration message.");
                 await ws.CloseAsync(WebSocketCloseStatus.PolicyViolation, "Invalid registration", CancellationToken.None);
                 return;
             }
@@ -101,7 +101,7 @@ namespace TikTok_bot
                 while (ws.State == WebSocketState.Open)
                 {
                     var receivedData = await ReceiveFullMessage(ws, buffer);
-                    Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Received data: " + receivedData);
+                    Logger.Debug("Received data: " + receivedData);
 
                     if (clientChatIds.TryGetValue(ws, out long chatId))
                     {
@@ -145,23 +145,23 @@ namespace TikTok_bot
                                                             continue;
                                                         }
 
-                                                        string localPath = url.Replace("file://", "").Replace('/', Path.DirectorySeparatorChar);
+                                                        string localPath = FileIO.FileUrlToLocalPath(url);
 
-                                                        if (File.Exists(localPath))
+                                                        if (FileIO.FileExists(localPath))
                                                         {
                                                             fileToDelete = localPath;
-                                                            var stream = File.OpenRead(localPath);
+                                                            var stream = FileIO.OpenFileForReading(localPath);
+                                                            string fileName = FileIO.GetFileName(localPath);
+                                                            
                                                             if (type == "photo")
-                                                                mediaList.Add(new InputMediaPhoto(InputFile.FromStream(stream, Path.GetFileName(localPath))));
+                                                                mediaList.Add(new InputMediaPhoto(InputFile.FromStream(stream, fileName)));
                                                             else if (type == "video")
-                                                                mediaList.Add(new InputMediaVideo(InputFile.FromStream(stream, Path.GetFileName(localPath))));
-
-
+                                                                mediaList.Add(new InputMediaVideo(InputFile.FromStream(stream, fileName)));
                                                         }
                                                         else
                                                         {
-                                                            Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - File not found: {localPath}");
-                                                            await bot.SendMessage(chatId, $"Error: File not found: {Path.GetFileName(localPath)}");
+                                                            Logger.Error($"File not found: {localPath}");
+                                                            await bot.SendMessage(chatId, $"Error: File not found: {FileIO.GetFileName(localPath)}");
                                                         }
 
                                                         continue;
@@ -194,7 +194,7 @@ namespace TikTok_bot
                                         if (hasFileProtocolUrl && !isUsingLocalTGServer)
                                         {
                                             await bot.SendMessage(chatId, "Error: Downloading this content is not possible without a local Telegram server.");
-                                            Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Blocked file:// URL for user: {sender} - using official API");
+                                            Logger.Warning($"Blocked file:// URL for user: {sender} - using official API");
                                             continue;
                                         }
 
@@ -239,32 +239,24 @@ namespace TikTok_bot
 
                                                 if (response != null)
                                                 {
-                                                    if (!string.IsNullOrEmpty(fileToDelete) && File.Exists(fileToDelete))
+                                                    if (!string.IsNullOrEmpty(fileToDelete) && FileIO.FileExists(fileToDelete))
                                                     {
-                                                        try
-                                                        {
-                                                            File.Delete(fileToDelete);
-                                                            Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - File deleted: {fileToDelete}");
-                                                        }
-                                                        catch (Exception ex)
-                                                        {
-                                                            Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Failed to delete file: {fileToDelete} - Error: {ex.Message}");
-                                                        }
+                                                        FileIO.DeleteFile(fileToDelete);
                                                     }
                                                 }
                                                 else
                                                 {
-                                                    Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Telegram did not return any media messages. File not deleted.");
+                                                    Logger.Warning("Telegram did not return any media messages. File not deleted.");
                                                 }
                                             }
                                             catch (Exception ex)
                                             {
-                                                Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Failed to send media group: {ex.Message}");
+                                                Logger.Error($"Failed to send media group: {ex.Message}");
                                             }
 
 
 
-                                            Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Sent media group to user: {sender}");
+                                            Logger.Info($"Sent media group to user: {sender}");
                                         }
                                         else if (!string.IsNullOrEmpty(textContent))
                                         {
@@ -274,29 +266,29 @@ namespace TikTok_bot
                                                 message += $"\n\nSent by {sender}";
                                             }
                                             await bot.SendMessage(chatId, message);
-                                            Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Sent text message to user: {sender}");
+                                            Logger.Info($"Sent text message to user: {sender}");
                                         }
                                     }
                                     else if (jsonData.TryGetProperty("error", out JsonElement errorElement))
                                     {
                                         string? errorMessage = errorElement.GetString();
                                         await bot.SendMessage(chatId, $"{errorMessage}");
-                                        Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Sent error message to user: {sender}");
+                                        Logger.Info($"Sent error message to user: {sender}");
                                     }
                                     else
                                     {
-                                        Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Error: Unsupported data type.");
+                                        Logger.Warning("Error: Unsupported data type.");
                                     }
                                 }
                                 else
                                 {
-                                    Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Error: Unsupported data type.");
+                                    Logger.Warning("Error: Unsupported data type.");
                                 }
                             }
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - JSON processing error: " + ex.Message);
+                            Logger.Error("JSON processing error: " + ex.Message);
                         }
                     }
                 }
