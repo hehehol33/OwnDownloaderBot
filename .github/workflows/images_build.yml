@@ -6,7 +6,6 @@ on:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -14,24 +13,44 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Images
-        run: |
-          docker build -t hehehol33/owndownloaderbot:tgbot ./tgbot
-          docker build -t hehehol33/owndownloaderbot:tiktok-linker ./ttlinker
-          docker build -t hehehol33/owndownloaderbot:instagram-linker ./iglinker
-          docker build -t hehehol33/owndownloaderbot:youtube-linker ./ytlinker
-
       - name: Login to Docker Hub
-        if: github.event_name == 'push'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_TOKEN  }}
+          password: ${{ secrets.DOCKER_TOKEN }}
 
-      - name: Push Images
-        if: github.event_name == 'push'
-        run: |
-          docker push hehehol33/owndownloaderbot:tgbot
-          docker push hehehol33/owndownloaderbot:tiktok-linker
-          docker push hehehol33/owndownloaderbot:instagram-linker
-          docker push hehehol33/owndownloaderbot:youtube-linker
+      - name: Build and push tgbot
+        uses: docker/build-push-action@v5
+        with:
+          context: ./tgbot
+          push: true
+          tags: hehehol33/owndownloaderbot:tgbot
+          cache-from: type=registry,ref=hehehol33/owndownloaderbot:tgbot
+          cache-to: type=inline
+
+      - name: Build and push tiktok-linker
+        uses: docker/build-push-action@v5
+        with:
+          context: ./ttlinker
+          push: true
+          tags: hehehol33/owndownloaderbot:tiktok-linker
+          cache-from: type=registry,ref=hehehol33/owndownloaderbot:tiktok-linker
+          cache-to: type=inline
+
+      - name: Build and push instagram-linker
+        uses: docker/build-push-action@v5
+        with:
+          context: ./iglinker
+          push: true
+          tags: hehehol33/owndownloaderbot:instagram-linker
+          cache-from: type=registry,ref=hehehol33/owndownloaderbot:instagram-linker
+          cache-to: type=inline
+
+      - name: Build and push youtube-linker
+        uses: docker/build-push-action@v5
+        with:
+          context: ./ytlinker
+          push: true
+          tags: hehehol33/owndownloaderbot:youtube-linker
+          cache-from: type=registry,ref=hehehol33/owndownloaderbot:youtube-linker
+          cache-to: type=inline
