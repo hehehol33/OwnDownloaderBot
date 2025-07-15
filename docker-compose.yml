@@ -14,7 +14,7 @@ services:
       - app-network
 
   tgbot:
-    build: hehehol33/owndownloaderbot:tgbot
+    image: hehehol33/owndownloaderbot:tgbot
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - PORT=9120 # custom port set
@@ -31,7 +31,7 @@ services:
       - app-network
 
   tiktok-linker:
-    build: hehehol33/owndownloaderbot:tiktok-linker
+    image: hehehol33/owndownloaderbot:tiktok-linker
     environment:
       - PORT=9120  # custom port set
     depends_on:
@@ -40,7 +40,7 @@ services:
       - app-network
 
   instagram-linker:
-    build: hehehol33/owndownloaderbot:instagram-linker
+    image: hehehol33/owndownloaderbot:instagram-linker
     environment:
       - IG_USERNAME=${IG_USERNAME}
       - IG_PASSWORD=${IG_PASSWORD}
@@ -51,7 +51,7 @@ services:
       - app-network
 
   youtube-linker:  
-    build: hehehol33/owndownloaderbot:youtube-linker
+    image: hehehol33/owndownloaderbot:youtube-linker
     environment:
       - PORT=9120 # custom port set
       - DOWNLOAD_FOLDER=/appdownloads
