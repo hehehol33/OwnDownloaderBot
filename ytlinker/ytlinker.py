@@ -158,7 +158,7 @@ def _fetch_media_items_sync(url: str) -> list[MediaItem]:
         
         # Download video
         with yt_dlp.YoutubeDL({
-            'format': '398/22/18/best[ext=mp4]',  # 720п потом 480 потом 360 потом их заглушка
+            'format': '22/18/best[ext=mp4]',  #398 Is video without sound oopsie)  720p 480p existing format with sound)
             'quiet': True,
             'no_warnings': True,
             'noplaylist': True, 
