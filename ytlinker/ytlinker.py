@@ -1,11 +1,9 @@
 ﻿import os
-import time
 import json
 import asyncio
 import re
 import requests
 import uuid
-import shutil
 from html import unescape
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
@@ -24,7 +22,6 @@ RETRY_DELAY = 1.5
 MAX_WORKERS = 4
 DEFAULT_DOWNLOAD_FOLDER = r"C:\OwnDownloaderBot\testfolder"  # Default download folder
 DOWNLOAD_FOLDER = os.getenv("DOWNLOAD_FOLDER", DEFAULT_DOWNLOAD_FOLDER)  # Download folder from environment variable, or default
-CLEANUP_INTERVAL = 1800  # 30 minutes in seconds
 
 # Necessary regex
 RE_INITIAL_DATA = re.compile(r"ytInitialData\s*=\s*({.*?});?\s*</script>", re.DOTALL)

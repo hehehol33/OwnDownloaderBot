@@ -14,10 +14,12 @@ IG_USERNAME = os.getenv("IG_USERNAME")
 IG_PASSWORD = os.getenv("IG_PASSWORD")
 
 # Constants
-VERSION = "A5"  # Updated version with logging
-MAX_RETRIES = 2
-RETRY_DELAY = 1
-MAX_WORKERS = 4  # Limiting to avoid Instagram rate limits
+VERSION = "A6"  # Updated version with improved error handling
+MAX_RETRIES = 3
+RETRY_DELAY = 2
+MAX_WORKERS = 2  # Reduced to avoid Instagram rate limits
+SESSION_LIFETIME = 3600  # Reset session after 1 hour
+
 
 # Setup logger for this module
 logger = setup_logger("instagram.linker")
@@ -28,16 +30,26 @@ executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 # Configure instaloader with optimized settings
 LOADER = instaloader.Instaloader()
 LOADER.context.max_connection_attempts = 3
-LOADER.context.sleep = lambda: time.sleep(random.uniform(0.5, 1.5))  # Slightly reduced delay
+LOADER.context.sleep = lambda: time.sleep(random.uniform(1.0, 3.0))  # Increased delay
 
-def initialize_loader() -> None:
+# Session management
+last_login_time = 0
+
+def initialize_loader(force_new=False) -> None:
     """Initialize a fresh Instagram session."""
-    global LOADER
+    global LOADER, last_login_time
     
+    current_time = time.time()
+    
+    # Only create new session if forced or session expired
+    if not force_new and last_login_time > 0 and (current_time - last_login_time) < SESSION_LIFETIME:
+        logger.debug("Using existing session")
+        return
+        
     # Create new loader with optimized settings
     LOADER = instaloader.Instaloader()
     LOADER.context.max_connection_attempts = 3
-    LOADER.context.sleep = lambda: time.sleep(random.uniform(0.5, 1.5))
+    LOADER.context.sleep = lambda: time.sleep(random.uniform(1.0, 3.0))
     
     if not IG_USERNAME or not IG_PASSWORD:
         logger.warning("No credentials found. Working anonymously.")
@@ -46,6 +58,7 @@ def initialize_loader() -> None:
     try:
         logger.info(f"Logging in as {IG_USERNAME}...")
         LOADER.login(IG_USERNAME, IG_PASSWORD)
+        last_login_time = time.time()
         logger.info("Logged in successfully.")
     except Exception as e:
         logger.error(f"Login failed: {e}")
@@ -69,7 +82,7 @@ def _fetch_media_items_sync(post_url: str) -> list[MediaItem]:
     Extract media items from Instagram posts with optimized processing.
     """
     media_items: list[MediaItem] = []
-
+    
     try:
         # Handle story URLs
         if "/stories/" in post_url:
@@ -79,15 +92,20 @@ def _fetch_media_items_sync(post_url: str) -> list[MediaItem]:
                 story_id_str = post_url.rstrip("/").split("/")[-1].split("?")[0]
                 logger.debug(f"Extracted story ID using fallback: {story_id_str}")
                 
-            story_id = int(story_id_str)
-            logger.debug(f"Fetching story with ID: {story_id}")
-            story_item = instaloader.StoryItem.from_mediaid(LOADER.context, story_id)
-            
-            # Don't download to disk, just get the URL
-            media_type = MediaType.VIDEO if story_item.is_video else MediaType.PHOTO
-            media_url = story_item.video_url if story_item.is_video else story_item.url
-            logger.debug(f"Retrieved story {media_type.value}: {media_url}")
-            media_items.append(MediaItem(type=media_type, url=media_url))
+            try:
+                story_id = int(story_id_str)
+                logger.debug(f"Fetching story with ID: {story_id}")
+                story_item = instaloader.StoryItem.from_mediaid(LOADER.context, story_id)
+                
+                # Don't download to disk, just get the URL
+                media_type = MediaType.VIDEO if story_item.is_video else MediaType.PHOTO
+                media_url = story_item.video_url if story_item.is_video else story_item.url
+                logger.debug(f"Retrieved story {media_type.value}: {media_url}")
+                media_items.append(MediaItem(type=media_type, url=media_url))
+            except instaloader.exceptions.BadResponseException as e:
+                logger.error(f"Story fetch error: {e}")
+                # No retry for stories as they're ephemeral
+                return []
 
         else:
             # Handle posts and reels
@@ -102,23 +120,27 @@ def _fetch_media_items_sync(post_url: str) -> list[MediaItem]:
             if not post_shortcode:
                 post_shortcode = post_url.split('/')[-2]
                 logger.debug(f"Extracted shortcode using fallback: {post_shortcode}")
-                
-            logger.debug(f"Fetching post with shortcode: {post_shortcode}")
-            post = instaloader.Post.from_shortcode(LOADER.context, post_shortcode)
+            
+            try:    
+                logger.debug(f"Fetching post with shortcode: {post_shortcode}")
+                post = instaloader.Post.from_shortcode(LOADER.context, post_shortcode)
 
-            # Handle different post types with optimized collection
-            if post.typename == "GraphSidecar":
-                logger.debug(f"Processing carousel post with {sum(1 for _ in post.get_sidecar_nodes())} items")
-                for node in post.get_sidecar_nodes():
-                    media_type = MediaType.VIDEO if node.is_video else MediaType.PHOTO
-                    media_url = node.video_url if node.is_video else node.display_url
-                    logger.debug(f"Added carousel item {media_type.value}: {media_url}")
+                # Handle different post types with optimized collection
+                if post.typename == "GraphSidecar":
+                    logger.debug(f"Processing carousel post with {sum(1 for _ in post.get_sidecar_nodes())} items")
+                    for node in post.get_sidecar_nodes():
+                        media_type = MediaType.VIDEO if node.is_video else MediaType.PHOTO
+                        media_url = node.video_url if node.is_video else node.display_url
+                        logger.debug(f"Added carousel item {media_type.value}: {media_url}")
+                        media_items.append(MediaItem(type=media_type, url=media_url))
+                else:
+                    media_type = MediaType.VIDEO if post.is_video else MediaType.PHOTO
+                    media_url = post.video_url if post.is_video else post.url
+                    logger.debug(f"Added single {media_type.value}: {media_url}")
                     media_items.append(MediaItem(type=media_type, url=media_url))
-            else:
-                media_type = MediaType.VIDEO if post.is_video else MediaType.PHOTO
-                media_url = post.video_url if post.is_video else post.url
-                logger.debug(f"Added single {media_type.value}: {media_url}")
-                media_items.append(MediaItem(type=media_type, url=media_url))
+            except instaloader.exceptions.BadResponseException as e:
+                logger.error(f"Post metadata fetch failed: {e}")
+                return []
 
     except Exception as e:
         logger.error(f"Error fetching media items: {e}", exc_info=True)
@@ -144,6 +166,12 @@ async def fetch_media_items(post_url: str) -> FetchResult:
             if not media_items and attempt < MAX_RETRIES - 1:
                 retry_delay_actual = RETRY_DELAY * (2 ** attempt)
                 logger.warning(f"No media items found. Retrying in {retry_delay_actual}s")
+                
+                # If this isn't the first attempt, try refreshing the session
+                if attempt > 0:
+                    logger.info("Refreshing Instagram session before retry")
+                    initialize_loader(force_new=True)
+                    
                 await asyncio.sleep(retry_delay_actual)
                 continue
                 
@@ -155,9 +183,9 @@ async def fetch_media_items(post_url: str) -> FetchResult:
             logger.error(f"Error fetching media: {error_message}", exc_info=True)
             
             # Handle 403 errors with refreshed session
-            if "403 Forbidden" in error_message and IG_USERNAME and IG_PASSWORD and attempt < MAX_RETRIES - 1:
+            if ("403 Forbidden" in error_message or "login_required" in error_message) and attempt < MAX_RETRIES - 1:
                 logger.warning(f"403 Forbidden error detected. Refreshing session and retrying...")
-                initialize_loader()
+                initialize_loader(force_new=True)
                 retry_delay_actual = RETRY_DELAY * (2 ** attempt)
                 await asyncio.sleep(retry_delay_actual)
                 continue
