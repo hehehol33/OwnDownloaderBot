@@ -8,23 +8,22 @@ import uuid
 import shutil
 from html import unescape
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
 import yt_dlp
 from logger_config import setup_logger, configure_logging
 from communicator import WebSocketCommunicator, MediaType, MediaItem, FetchResult
+from urllib.parse import urlparse, parse_qs, unquote
 
 # Logger configuration
 configure_logging()
 logger = setup_logger("youtube.linker")
 
 # Constants
-VERSION = "A3"
+VERSION = "A4"
 MAX_RETRIES = 2
 RETRY_DELAY = 1.5 
 MAX_WORKERS = 4
 DEFAULT_DOWNLOAD_FOLDER = r"C:\OwnDownloaderBot\testfolder"  # Default download folder
 DOWNLOAD_FOLDER = os.getenv("DOWNLOAD_FOLDER", DEFAULT_DOWNLOAD_FOLDER)  # Download folder from environment variable, or default
-CLEANUP_INTERVAL = 1800  # 30 minutes in seconds
 
 # Necessary regex
 RE_INITIAL_DATA = re.compile(r"ytInitialData\s*=\s*({.*?});?\s*</script>", re.DOTALL)
@@ -32,8 +31,6 @@ RE_IMAGE_QUALITY = re.compile(r"=s(\d+)-")
 
 # Thread pool for CPU-bound operations
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
-
-
 
 # YouTube content type detection
 def is_shorts(url: str) -> bool:
@@ -44,6 +41,24 @@ def is_community_post(url: str) -> bool:
     """Determine if URL is any type of YouTube Community post"""
     return "/community" in url.lower() or "/post/" in url.lower()
 
+def resolve_redirect_url(raw: str) -> str:
+    if not raw:
+        return raw
+    try:
+        if "youtube.com/redirect" in raw or raw.startswith("/redirect?"):
+            if raw.startswith("/redirect?"):
+                raw = "https://www.youtube.com" + raw
+            p = urlparse(raw)
+            qs = parse_qs(p.query)
+            for key in ("q", "url", "u", "target"):
+                if key in qs and qs[key]:
+                    candidate = unquote(qs[key][0])
+                    if candidate.startswith("http"):
+                        return candidate
+        return raw
+    except Exception:
+        return raw
+
 def extract_post_content(post_url: str) -> dict:
     """
     Returns a dictionary with text and URL of the highest quality image from a YouTube Community post.
@@ -52,66 +67,78 @@ def extract_post_content(post_url: str) -> dict:
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         "Accept-Language": "en-US,en;q=0.9",
     }
-
     logger.info(f"Fetching content: {post_url} (community post)")
     response = requests.get(post_url, headers=headers)
     response.raise_for_status()
-    
-    # Extract ytInitialData JavaScript object using precompiled regex
-    initial_data_match = RE_INITIAL_DATA.search(response.text)
-    if not initial_data_match:
+
+    m = RE_INITIAL_DATA.search(response.text)
+    if not m:
         logger.error("Could not find ytInitialData in page HTML")
         raise ValueError("Could not find ytInitialData in page HTML")
-    
-    initial_data = json.loads(initial_data_match.group(1))
+    initial_data = json.loads(m.group(1))
 
-    # Recursively search for data
-    image_urls = []
-    post_text = None
+    all_image_urls: list[list[str]] = []
+    post_text_runs_collected = False
+    post_text_builder: list[str] = []
 
-    def extract_from_dict(obj):
-        nonlocal post_text
-        if not isinstance(obj, (dict, list)):
-            return
-            
+    def extract_from(obj):
+        nonlocal post_text_runs_collected
         if isinstance(obj, dict):
-            # Look for images
             if "backstageImageRenderer" in obj:
-                for thumb in obj["backstageImageRenderer"].get("image", {}).get("thumbnails", []):
-                    if url := thumb.get("url"):
-                        image_urls.append(unescape(url))
-            
-            # Look for post text
-            content_text = None
-            if "backstagePostRenderer" in obj:
-                content = obj["backstagePostRenderer"].get("content", {})
-                if "backstagePostContentRenderer" in content:
-                    content_text = content["backstagePostContentRenderer"].get("contentText", {})
-            elif "contentText" in obj:
-                content_text = obj["contentText"]
-                
-            if content_text and "runs" in content_text and not post_text:
-                post_text = "".join(run.get("text", "") for run in content_text["runs"])
-                
-            # Recursive traversal
-            for value in obj.values():
-                extract_from_dict(value)
-        else:  # list
-            for item in obj:
-                extract_from_dict(item)
+                thumbs = obj["backstageImageRenderer"].get("image", {}).get("thumbnails", [])
+                image_set = []
+                for t in thumbs:
+                    u = t.get("url")
+                    if u:
+                        image_set.append(unescape(u))
+                if image_set:
+                    all_image_urls.append(image_set)
 
-    extract_from_dict(initial_data)
-    
-    # Select image with highest quality using precompiled regex
-    best_image = None
-    if image_urls:
-        def get_quality(url):
-            match = RE_IMAGE_QUALITY.search(url)
-            return int(match.group(1)) if match else 0
-        best_image = max(image_urls, key=get_quality)
-    
-    logger.info(f"Post contains: text={bool(post_text)}, image={bool(best_image)}")
-    return {"text": post_text, "image": best_image}
+            if not post_text_runs_collected:
+                content_text = None
+                if "backstagePostRenderer" in obj:
+                    content = obj["backstagePostRenderer"].get("content", {})
+                    bpcr = content.get("backstagePostContentRenderer")
+                    if bpcr:
+                        content_text = bpcr.get("contentText")
+                elif "contentText" in obj:
+                    content_text = obj.get("contentText")
+
+                if content_text and isinstance(content_text, dict) and "runs" in content_text:
+                    for run in content_text["runs"]:
+                        raw_display = run.get("text", "")
+                        nav = run.get("navigationEndpoint", {})
+                        if "urlEndpoint" in nav and "url" in nav["urlEndpoint"]:
+                            full = nav["urlEndpoint"]["url"]
+                        else:
+                            full = None
+                        if full and full.startswith("http"):
+                            resolved = resolve_redirect_url(full)
+                            post_text_builder.append(resolved)
+                        else:
+                            post_text_builder.append(raw_display)
+                    post_text_runs_collected = True
+
+            for v in obj.values():
+                extract_from(v)
+        elif isinstance(obj, list):
+            for item in obj:
+                extract_from(item)
+
+    extract_from(initial_data)
+
+    best_images: list[str] = []
+    for image_set in all_image_urls:
+        if not image_set:
+            continue
+        def q(u: str) -> int:
+            m2 = RE_IMAGE_QUALITY.search(u)
+            return int(m2.group(1)) if m2 else 0
+        best_images.append(max(image_set, key=q))
+
+    post_text = "".join(post_text_builder).strip() if post_text_builder else None
+    logger.info(f"Post contains: text={bool(post_text)}, images={len(best_images)}")
+    return {"text": post_text, "images": best_images}
 
 def _fetch_media_items_sync(url: str) -> list[MediaItem]:
     """
@@ -138,11 +165,11 @@ def _fetch_media_items_sync(url: str) -> list[MediaItem]:
                     content=post_content["text"]
                 ))
                 
-            # Add image if available
-            if post_content["image"]:
+            # Add all images if available
+            for image_url in post_content["images"]:
                 media_items.append(MediaItem(
                     type=MediaType.PHOTO,
-                    url=post_content["image"]
+                    url=image_url
                 ))
                 
             return media_items
