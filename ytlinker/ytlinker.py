@@ -5,13 +5,13 @@ import asyncio
 import re
 import requests
 import uuid
-import shutil
 from html import unescape
 from concurrent.futures import ThreadPoolExecutor
 import yt_dlp
 from logger_config import setup_logger, configure_logging
 from communicator import WebSocketCommunicator, MediaType, MediaItem, FetchResult
 from urllib.parse import urlparse, parse_qs, unquote
+from functools import lru_cache  
 
 # Logger configuration
 configure_logging()
@@ -24,6 +24,7 @@ RETRY_DELAY = 1.5
 MAX_WORKERS = 4
 DEFAULT_DOWNLOAD_FOLDER = r"C:\OwnDownloaderBot\testfolder"  # Default download folder
 DOWNLOAD_FOLDER = os.getenv("DOWNLOAD_FOLDER", DEFAULT_DOWNLOAD_FOLDER)  # Download folder from environment variable, or default
+MAX_VIDEO_SIZE_BYTES = int(os.getenv("YTLINKER_MAX_VIDEO_SIZE", str(4 * 1024**3)))  # 4GB limit
 
 # Necessary regex
 RE_INITIAL_DATA = re.compile(r"ytInitialData\s*=\s*({.*?});?\s*</script>", re.DOTALL)
@@ -31,6 +32,19 @@ RE_IMAGE_QUALITY = re.compile(r"=s(\d+)-")
 
 # Thread pool for CPU-bound operations
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
+
+# Reusable HTTP session (reuse TCP/TLS connections instead of creating a new one per request)
+_session = None
+def get_http_session():
+    """Lazily create and return a shared requests.Session with default headers."""
+    global _session
+    if _session is None:
+        _session = requests.Session()
+        _session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "Accept-Language": "en-US,en;q=0.9",
+        })
+    return _session
 
 # YouTube content type detection
 def is_shorts(url: str) -> bool:
@@ -59,16 +73,19 @@ def resolve_redirect_url(raw: str) -> str:
     except Exception:
         return raw
 
+@lru_cache(maxsize=128)  # Caches repeated community post fetches
 def extract_post_content(post_url: str) -> dict:
     """
-    Returns a dictionary with text and URL of the highest quality image from a YouTube Community post.
+    Returns a dictionary with text and URLs of images from a YouTube Community post.
+    Cached to avoid repeated network/parse work for the same URL.
+    Do NOT mutate the returned dict outside (cache shares the object).
     """
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
+    # Use shared session (connection pooling + reused TLS handshakes)
+    session = get_http_session()
+
     logger.info(f"Fetching content: {post_url} (community post)")
-    response = requests.get(post_url, headers=headers)
+    # Headers already set on the session; no need to resend unless overriding
+    response = session.get(post_url)
     response.raise_for_status()
 
     m = RE_INITIAL_DATA.search(response.text)
@@ -144,9 +161,6 @@ def _fetch_media_items_sync(url: str) -> list[MediaItem]:
     """
     Synchronous function to fetch media items from a YouTube URL.
     For videos, saves them locally and returns file:// URIs.
-
-    Returns:
-        list[MediaItem]: A list of MediaItem objects. Returns an empty list if an error occurs or no media is found.
     """
     media_items = []
     
@@ -191,20 +205,37 @@ def _fetch_media_items_sync(url: str) -> list[MediaItem]:
             'noplaylist': True, 
             'outtmpl': file_path,
             'concurrent_fragment_downloads': 4,
-            'cookiefile': 'cookies.txt'
+            'cookiefile': 'cookies.txt',
+            'socket_timeout': 15,  # Network socket timeout 
         }) as ydl:
-            # Get information about available formats
+            # First: probe info (no download)
             info = ydl.extract_info(url, download=False)
             
             if info:
-                # Log available formats at DEBUG level
-                formats = info.get('formats', [])
-                logger.debug(f"Available formats for {info.get('title', 'Unknown')}:")
-                for fmt in formats:
-                    if fmt.get('ext') == 'mp4' and fmt.get('height'):
-                        logger.debug(f"  Format {fmt.get('format_id', 'N/A')}: {fmt.get('height')}p, filesize: {fmt.get('filesize_approx', 'N/A')} bytes")
+                # Determine total size of the chosen (or best) format(s)
+                total_size = None
+                # Case 1: merged / multiple requested formats (audio+video)
+                if 'requested_formats' in info and isinstance(info['requested_formats'], list):
+                    sizes = []
+                    for fmt in info['requested_formats']:
+                        sz = fmt.get('filesize') or fmt.get('filesize_approx')
+                        if sz:
+                            sizes.append(sz)
+                    if sizes:
+                        total_size = sum(sizes)
+                else:
+                    # Single format
+                    total_size = info.get('filesize') or info.get('filesize_approx')
                 
-                # Now download the selected format
+                if total_size and total_size > MAX_VIDEO_SIZE_BYTES:
+                    human_mb = round(total_size / (1024**2), 2)
+                    limit_mb = round(MAX_VIDEO_SIZE_BYTES / (1024**2), 2)
+                    logger.error(
+                        f"Aborting download: estimated size {human_mb} MB exceeds limit {limit_mb} MB (url={url})"
+                    )
+                    return []
+                
+                # Proceed to actual download
                 info = ydl.extract_info(url, download=True)
             
             if info:
@@ -223,13 +254,11 @@ def _fetch_media_items_sync(url: str) -> list[MediaItem]:
                     width = info.get('width', '?')
                     height = info.get('height', '?')
                     resolution = f"{width}x{height}"
-                    video_info = f"{info.get('title', 'Unknown')} ({resolution})"
-                    logger.info(f"Found {content_type}: {video_info}")
+                    logger.info(f"Found {content_type}: {info.get('title', 'Unknown')} ({resolution})")
                     logger.info(f"Video saved to: {file_path}")
                     logger.info(f"File URI: {file_uri}")
                 else:
                     logger.error(f"Failed to save video to {file_path}")
-                
     except Exception as e:
         logger.exception(f"Error fetching content: {e}")
     
