@@ -10,7 +10,7 @@ class Program
 {
     const string filePath = "settings.json";
 
-    const string VERSION = "A6";
+    const string VERSION = "A7";
     
     // Default values for bot API configuration (without protocol prefix)
     const string DEFAULT_LOCAL_TGAPI_HOST = "localhost";

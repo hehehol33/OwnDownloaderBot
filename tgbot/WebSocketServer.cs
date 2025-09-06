@@ -1,6 +1,7 @@
 ﻿using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using System.Linq;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
@@ -13,6 +14,42 @@ namespace TikTok_bot
     internal class WebSocketServer
     {
         const string settingsFilePath = "settings.json";
+
+        // Telegram limits
+        private const int MaxMediaPerGroup = 10;
+        private const int MaxCaptionLength = 1024;    // for media messages
+        private const int MaxTextLength = 4096;       // for text-only messages
+
+        /// <summary>
+        /// Split text into chunks with a maximum length. Tries to split on whitespace when possible.
+        /// </summary>
+        private static IEnumerable<string> SplitText(string text, int maxLength)
+        {
+            if (string.IsNullOrEmpty(text)) yield break;
+
+            int idx = 0;
+            while (idx < text.Length)
+            {
+                int len = Math.Min(maxLength, text.Length - idx);
+                // Try to break on the last whitespace within the window (only when not at the end)
+                int breakPos = -1;
+                if (idx + len < text.Length)
+                {
+                    breakPos = text.LastIndexOfAny(new[] { ' ', '\n', '\t' }, idx + len - 1, len);
+                }
+
+                if (breakPos > idx)
+                {
+                    yield return text.Substring(idx, breakPos - idx + 1).TrimEnd();
+                    idx = breakPos + 1;
+                }
+                else
+                {
+                    yield return text.Substring(idx, len);
+                    idx += len;
+                }
+            }
+        }
 
         /// <summary>
         /// Получает полное сообщение от клиента через WebSocket, учитывая возможный недостаточный размер буфера.
@@ -120,15 +157,15 @@ namespace TikTok_bot
                                     if (jsonData.TryGetProperty("media", out JsonElement mediaElement) && mediaElement.ValueKind == JsonValueKind.Array)
                                     {
                                         var mediaList = new List<IAlbumInputMedia>();
-                                        string textContent = null;
+                                        string? textContent = null;
                                         bool hasFileProtocolUrl = false;
-                                        string? fileToDelete = null;
+                                        var filesToDelete = new List<string>();
 
                                         foreach (var item in mediaElement.EnumerateArray())
                                         {
                                             if (item.ValueKind == JsonValueKind.Object && item.TryGetProperty("type", out JsonElement typeElement))
                                             {
-                                                string type = typeElement.GetString();
+                                                string type = typeElement.GetString() ?? string.Empty;
 
                                                 // Check for file:// URLs
                                                 if ((type == "photo" || type == "video") &&
@@ -149,7 +186,7 @@ namespace TikTok_bot
 
                                                         if (FileIO.FileExists(localPath))
                                                         {
-                                                            fileToDelete = localPath;
+                                                            filesToDelete.Add(localPath);
                                                             var stream = FileIO.OpenFileForReading(localPath);
                                                             string fileName = FileIO.GetFileName(localPath);
                                                             
@@ -201,62 +238,104 @@ namespace TikTok_bot
 
                                         if (mediaList.Count > 0)
                                         {
-                                            // Add caption to first media if there's text
-                                            if (!string.IsNullOrEmpty(textContent))
+                                            // Build full text with optional signature
+                                            string? fullText = null;
+                                            bool hasText = !string.IsNullOrEmpty(textContent);
+                                            if (hasText)
                                             {
-                                                string caption = textContent;
+                                                fullText = textContent;
                                                 if (signatureActive)
-                                                {
-                                                    caption += $"\n\nSent by {sender}";
-                                                }
-
-                                                if (mediaList[0] is InputMediaPhoto photoMedia)
-                                                {
-                                                    photoMedia.Caption = caption;
-                                                }
-                                                else if (mediaList[0] is InputMediaVideo videoMedia)
-                                                {
-                                                    videoMedia.Caption = caption;
-                                                }
+                                                    fullText += $"\n\nSent by {sender}";
                                             }
                                             else if (signatureActive)
                                             {
-                                                // Add simple sender attribution only if signature is active
-                                                if (mediaList[0] is InputMediaPhoto photoMedia)
-                                                {
-                                                    photoMedia.Caption = $"Sent by {sender}";
-                                                }
-                                                else if (mediaList[0] is InputMediaVideo videoMedia)
-                                                {
-                                                    videoMedia.Caption = $"Sent by {sender}";
-                                                }
+                                                fullText = $"Sent by {sender}";
                                             }
 
-
-                                            try
+                                            // Prepare caption and leftover text respecting limits
+                                            string? firstCaption = null;
+                                            string? leftoverText = null;
+                                            if (!string.IsNullOrEmpty(fullText))
                                             {
-                                                var response = await bot.SendMediaGroup(chatId, mediaList);
-
-                                                if (response != null)
+                                                if (fullText.Length <= MaxCaptionLength)
                                                 {
-                                                    if (!string.IsNullOrEmpty(fileToDelete) && FileIO.FileExists(fileToDelete))
-                                                    {
-                                                        FileIO.DeleteFile(fileToDelete);
-                                                    }
+                                                    firstCaption = fullText;
                                                 }
                                                 else
                                                 {
-                                                    Logger.Warning("Telegram did not return any media messages. File not deleted.");
+                                                    firstCaption = new string(SplitText(fullText, MaxCaptionLength).FirstOrDefault()?.ToCharArray() ?? Array.Empty<char>());
+                                                    leftoverText = fullText.Substring(firstCaption.Length).TrimStart();
                                                 }
                                             }
-                                            catch (Exception ex)
+
+                                            // Send media in batches of up to 10
+                                            int total = mediaList.Count;
+                                            int sent = 0;
+                                            int batchIndex = 0;
+                                            while (sent < total)
                                             {
-                                                Logger.Error($"Failed to send media group: {ex.Message}");
+                                                var batch = mediaList.Skip(sent).Take(MaxMediaPerGroup).ToList();
+                                                // Apply caption only to the first media of the first batch
+                                                if (batchIndex == 0 && !string.IsNullOrEmpty(firstCaption))
+                                                {
+                                                    if (batch[0] is InputMediaPhoto photo)
+                                                        photo.Caption = firstCaption;
+                                                    else if (batch[0] is InputMediaVideo video)
+                                                        video.Caption = firstCaption;
+                                                }
+                                                else if (batchIndex == 0 && string.IsNullOrEmpty(firstCaption) && !hasText && signatureActive)
+                                                {
+                                                    // No text, but signature active -> simple caption on first item
+                                                    if (batch[0] is InputMediaPhoto photo)
+                                                        photo.Caption = $"Sent by {sender}";
+                                                    else if (batch[0] is InputMediaVideo video)
+                                                        video.Caption = $"Sent by {sender}";
+                                                }
+
+                                                try
+                                                {
+                                                    var response = await bot.SendMediaGroup(chatId, batch);
+                                                    if (response == null)
+                                                    {
+                                                        Logger.Warning("Telegram did not return any media messages. Files not deleted.");
+                                                    }
+                                                }
+                                                catch (Exception ex)
+                                                {
+                                                    Logger.Error($"Failed to send media group: {ex.Message}");
+                                                }
+
+                                                sent += batch.Count;
+                                                batchIndex++;
                                             }
 
+                                            // After sending media groups, send any leftover text as plain messages (4096 limit)
+                                            if (!string.IsNullOrEmpty(leftoverText))
+                                            {
+                                                foreach (var chunk in SplitText(leftoverText, MaxTextLength))
+                                                {
+                                                    await bot.SendMessage(chatId, chunk);
+                                                }
+                                            }
 
+                                            // Cleanup any local temp files
+                                            if (filesToDelete.Count > 0)
+                                            {
+                                                foreach (var path in filesToDelete)
+                                                {
+                                                    try
+                                                    {
+                                                        if (FileIO.FileExists(path))
+                                                            FileIO.DeleteFile(path);
+                                                    }
+                                                    catch (Exception ex)
+                                                    {
+                                                        Logger.Warning($"Failed to delete temp file '{path}': {ex.Message}");
+                                                    }
+                                                }
+                                            }
 
-                                            Logger.Info($"Sent media group to user: {sender}");
+                                            Logger.Info($"Sent {Math.Ceiling((double)total / MaxMediaPerGroup)} media group(s) to user: {sender}");
                                         }
                                         else if (!string.IsNullOrEmpty(textContent))
                                         {
@@ -265,8 +344,14 @@ namespace TikTok_bot
                                             {
                                                 message += $"\n\nSent by {sender}";
                                             }
-                                            await bot.SendMessage(chatId, message);
-                                            Logger.Info($"Sent text message to user: {sender}");
+
+                                            // Split long text into 4096-sized chunks
+                                            foreach (var chunk in SplitText(message, MaxTextLength))
+                                            {
+                                                await bot.SendMessage(chatId, chunk);
+                                            }
+
+                                            Logger.Info($"Sent text message(s) to user: {sender}");
                                         }
                                     }
                                     else if (jsonData.TryGetProperty("error", out JsonElement errorElement))
